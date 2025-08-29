@@ -1,0 +1,54 @@
+{
+  "settings": {
+    "includedFileExtensions": [".txt", ".pdf", ".docx", ".xlsx", ".md", ".html", ".json"]
+  },
+  "entrypoints": [
+    {
+      "id": "deep_research_agent",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "The research topic to investigate"
+          },
+          "context": {
+            "type": "string",
+            "description": "Additional context or constraints for the research"
+          },
+          "add_data_to_index": {
+            "type": "boolean",
+            "description": "Whether to add new data to the context grounding index",
+            "default": false
+          }
+        },
+        "required": ["topic"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "report": {
+            "type": "object",
+            "properties": {
+              "topic": {"type": "string"},
+              "executive_summary": {"type": "string"},
+              "sections": {
+                "type": "object",
+                "additionalProperties": {"type": "string"}
+              },
+              "sources": {
+                "type": "array",
+                "items": {"type": "string"}
+              },
+              "generated_at": {"type": "string", "format": "date-time"}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "bindings": {
+    "version": "2.0",
+    "resources": []
+  }
+}

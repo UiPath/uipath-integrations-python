@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "workflows": {
+    "deep_research_agent": "deep_research_workflow.py:DeepResearchWorkflow"
+  },
+  "env": ".env"
+}

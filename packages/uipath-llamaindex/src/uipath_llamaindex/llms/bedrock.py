@@ -42,6 +42,8 @@ def _check_bedrock_dependencies() -> None:
 _check_bedrock_dependencies()
 
 import boto3  # type: ignore[import-untyped]
+from botocore import UNSIGNED
+from botocore.config import Config
 from llama_index.core.base.llms.types import (  # noqa: E402
     ChatMessage,
     ChatResponse,
@@ -98,6 +100,12 @@ class AwsBedrockCompletionsPassthroughClient:
             region_name="us-east-1",
             aws_access_key_id="none",
             aws_secret_access_key="none",
+            config=Config(
+                signature_version=UNSIGNED,
+                retries={
+                    "total_max_attempts": 1,
+                },
+            ),
             verify=True,
         )
         client.meta.events.register(

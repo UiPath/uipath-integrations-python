@@ -1,0 +1,24 @@
+flowchart TB
+  __start__(__start__)
+  orchestrator_agent(orchestrator_agent)
+  hr_agent(hr_agent)
+  hr_agent_tools(tools)
+  procurement_agent(procurement_agent)
+  procurement_agent_tools(tools)
+  policy_agent(policy_agent)
+  policy_agent_tools(tools)
+  __end__(__end__)
+  hr_agent --> hr_agent_tools
+  hr_agent_tools --> hr_agent
+  orchestrator_agent --> hr_agent
+  hr_agent --> orchestrator_agent
+  procurement_agent --> procurement_agent_tools
+  procurement_agent_tools --> procurement_agent
+  orchestrator_agent --> procurement_agent
+  procurement_agent --> orchestrator_agent
+  policy_agent --> policy_agent_tools
+  policy_agent_tools --> policy_agent
+  orchestrator_agent --> policy_agent
+  policy_agent --> orchestrator_agent
+  __start__ --> |input|orchestrator_agent
+  orchestrator_agent --> |output|__end__

@@ -1,12 +1,15 @@
 """Runtime class for executing Google ADK agents within the UiPath framework."""
 
 import json
+import logging
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 from google.adk.agents import BaseAgent
+from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.events.event import Event
-from google.adk.runners import InMemoryRunner
+from google.adk.runners import Runner
+from google.adk.sessions.base_session_service import BaseSessionService
 from google.adk.sessions.session import Session
 from google.genai import types
 from uipath.core.serialization import serialize_defaults
@@ -19,18 +22,22 @@ from uipath.runtime import (
 from uipath.runtime.errors import UiPathErrorCategory, UiPathErrorCode
 from uipath.runtime.events import (
     UiPathRuntimeEvent,
+    UiPathRuntimeMessageEvent,
     UiPathRuntimeStateEvent,
     UiPathRuntimeStatePhase,
 )
 from uipath.runtime.schema import UiPathRuntimeSchema
 
 from .errors import UiPathGoogleADKErrorCode, UiPathGoogleADKRuntimeError
+from .messages import GoogleADKChatMessagesMapper
 from .schema import (
     get_agent_graph,
     get_entrypoints_schema,
     resolve_output_key,
     resolve_output_schema,
 )
+
+logger = logging.getLogger(__name__)
 
 _TRANSFER_FN = "transfer_to_agent"
 
@@ -46,16 +53,19 @@ class UiPathGoogleADKRuntime:
     def __init__(
         self,
         agent: BaseAgent,
-        runner: InMemoryRunner,
+        runner: Runner,
         session: Session,
+        session_service: BaseSessionService,
         runtime_id: str | None = None,
         entrypoint: str | None = None,
     ):
         self.agent: BaseAgent = agent
         self.runtime_id: str = runtime_id or "default"
         self.entrypoint: str | None = entrypoint
-        self._runner: InMemoryRunner = runner
+        self._runner: Runner = runner
         self._session: Session = session
+        self._session_service: BaseSessionService = session_service
+        self.chat = GoogleADKChatMessagesMapper()
 
     async def execute(
         self,
@@ -78,6 +88,7 @@ class UiPathGoogleADKRuntime:
                             final_text = part.text
                             break
 
+            await self._reload_session()
             output = self._extract_output(final_text)
             return self._create_success_result(output)
 
@@ -111,17 +122,19 @@ class UiPathGoogleADKRuntime:
             user_message = self._prepare_user_message(input)
 
             root_name = self.agent.name
+            run_config = RunConfig(streaming_mode=StreamingMode.SSE)
 
-            # __start__ and root agent kick off the graph visualization
-            yield UiPathRuntimeStateEvent(
-                payload={},
-                node_name="__start__",
-                phase=UiPathRuntimeStatePhase.STARTED,
-            )
+            # root agent kick off the graph visualization
             yield UiPathRuntimeStateEvent(
                 payload={},
                 node_name=root_name,
                 phase=UiPathRuntimeStatePhase.STARTED,
+            )
+
+            yield UiPathRuntimeStateEvent(
+                payload={},
+                node_name=root_name,
+                phase=UiPathRuntimeStatePhase.COMPLETED,
             )
 
             final_text = None
@@ -132,6 +145,7 @@ class UiPathGoogleADKRuntime:
                 user_id=self.USER_ID,
                 session_id=self._session.id,
                 new_message=user_message,
+                run_config=run_config,
             ):
                 author = event.author
 
@@ -204,6 +218,10 @@ class UiPathGoogleADKRuntime:
                 for runtime_event in self._convert_event(event):
                     yield runtime_event
 
+                # Yield conversation message events
+                for msg_event in self.chat.map_event(event):
+                    yield UiPathRuntimeMessageEvent(payload=msg_event)
+
                 if event.is_final_response() and event.content and event.content.parts:
                     for part in event.content.parts:
                         if part.text:
@@ -224,18 +242,11 @@ class UiPathGoogleADKRuntime:
                     phase=UiPathRuntimeStatePhase.COMPLETED,
                 )
 
-            # Root agent and __end__ close out the graph visualization
-            yield UiPathRuntimeStateEvent(
-                payload={},
-                node_name=root_name,
-                phase=UiPathRuntimeStatePhase.COMPLETED,
-            )
-            yield UiPathRuntimeStateEvent(
-                payload={},
-                node_name="__end__",
-                phase=UiPathRuntimeStatePhase.COMPLETED,
-            )
+            # Close any open conversation message
+            for msg_event in self.chat.close_message():
+                yield UiPathRuntimeMessageEvent(payload=msg_event)
 
+            await self._reload_session()
             output = self._extract_output(final_text)
             yield self._create_success_result(output)
 
@@ -284,36 +295,51 @@ class UiPathGoogleADKRuntime:
     def _prepare_user_message(self, input: dict[str, Any] | None) -> types.Content:
         """Prepare user message from UiPath input dictionary.
 
-        If input contains 'messages', uses that as text (conversational).
+        Extracts the current user message from the input. Conversation
+        history is handled by the persistent session service — previous
+        events are automatically loaded from SQLite on each call.
+
         If input has no 'messages' key, serializes the entire input as JSON
         (for agents with typed input_schema).
         """
         if not input:
-            text = ""
-        elif "messages" in input:
-            messages = input["messages"]
-            if isinstance(messages, str):
-                text = messages
-            elif isinstance(messages, list):
-                parts = []
-                for msg in messages:
-                    if isinstance(msg, str):
-                        parts.append(msg)
-                    elif isinstance(msg, dict):
-                        parts.append(msg.get("content", str(msg)))
-                    else:
-                        parts.append(str(msg))
-                text = "\n".join(parts)
-            else:
-                text = str(messages)
-        else:
-            # Typed input: serialize the entire input dict as JSON
-            text = json.dumps(input)
+            return types.Content(role="user", parts=[types.Part(text="")])
 
-        return types.Content(
-            role="user",
-            parts=[types.Part(text=text)],
+        if "messages" in input:
+            messages = input["messages"]
+
+            # Simple string → direct user message
+            if isinstance(messages, str):
+                return types.Content(role="user", parts=[types.Part(text=messages)])
+
+            # List → parse as UiPath conversation messages, take the last
+            if isinstance(messages, list) and messages:
+                contents = self.chat.map_messages(messages)
+                if contents:
+                    last = contents[-1]
+                    if last.role == "user":
+                        return last
+                    return types.Content(role="user", parts=[types.Part(text="")])
+
+            return types.Content(role="user", parts=[types.Part(text=str(messages))])
+
+        # Typed input: serialize the entire input dict as JSON
+        return types.Content(role="user", parts=[types.Part(text=json.dumps(input))])
+
+    async def _reload_session(self) -> None:
+        """Reload session from the session service to get updated state.
+
+        After run_async() completes, the session service has the latest
+        state (including output_key values). We reload to ensure
+        _extract_output() can read the updated session state.
+        """
+        updated = await self._session_service.get_session(
+            app_name=self.APP_NAME,
+            user_id=self.USER_ID,
+            session_id=self._session.id,
         )
+        if updated:
+            self._session = updated
 
     def _convert_event(self, event: Event) -> list[UiPathRuntimeStateEvent]:
         """Convert a Google ADK Event to UiPath runtime state events.
@@ -396,17 +422,6 @@ class UiPathGoogleADKRuntime:
                     payload=serialize_defaults(event.actions.state_delta),
                     node_name=author,
                     metadata={"event_type": "state_delta"},
-                )
-            )
-            return events
-
-        # Partial streaming content
-        if event.partial and event.content:
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload=serialize_defaults(event.content),
-                    node_name=author,
-                    metadata={"event_type": "partial"},
                 )
             )
             return events

@@ -138,9 +138,7 @@ def get_entrypoints_schema(agent: BaseAgent) -> dict[str, Any]:
 
             schema["input"] = {
                 "type": "object",
-                "properties": transform_nullable_types(
-                    unpacked.get("properties", {})
-                ),
+                "properties": transform_nullable_types(unpacked.get("properties", {})),
                 "required": unpacked.get("required", []),
             }
             if "title" in unpacked:
@@ -283,14 +281,10 @@ def get_agent_graph(agent: BaseAgent) -> UiPathRuntimeGraph:
                 _add_agent_and_tools(sub_agent)
 
             edges.append(
-                UiPathRuntimeEdge(
-                    source=agent_name, target=sub_name, label=None
-                )
+                UiPathRuntimeEdge(source=agent_name, target=sub_name, label=None)
             )
             edges.append(
-                UiPathRuntimeEdge(
-                    source=sub_name, target=agent_name, label=None
-                )
+                UiPathRuntimeEdge(source=sub_name, target=agent_name, label=None)
             )
 
     # Add __start__ node
@@ -322,9 +316,7 @@ def get_agent_graph(agent: BaseAgent) -> UiPathRuntimeGraph:
     edges.append(
         UiPathRuntimeEdge(source="__start__", target=agent_name, label="input")
     )
-    edges.append(
-        UiPathRuntimeEdge(source=agent_name, target="__end__", label="output")
-    )
+    edges.append(UiPathRuntimeEdge(source=agent_name, target="__end__", label="output"))
 
     return UiPathRuntimeGraph(nodes=nodes, edges=edges)
 
@@ -369,9 +361,7 @@ def _process_tools(
             )
         )
         edges.append(
-            UiPathRuntimeEdge(
-                source=tool_agent_name, target=agent_name, label=None
-            )
+            UiPathRuntimeEdge(source=tool_agent_name, target=agent_name, label=None)
         )
 
     # Regular tools — aggregate into single tools node
@@ -394,14 +384,10 @@ def _process_tools(
                 )
             )
             edges.append(
-                UiPathRuntimeEdge(
-                    source=agent_name, target=tools_node_id, label=None
-                )
+                UiPathRuntimeEdge(source=agent_name, target=tools_node_id, label=None)
             )
             edges.append(
-                UiPathRuntimeEdge(
-                    source=tools_node_id, target=agent_name, label=None
-                )
+                UiPathRuntimeEdge(source=tools_node_id, target=agent_name, label=None)
             )
 
 

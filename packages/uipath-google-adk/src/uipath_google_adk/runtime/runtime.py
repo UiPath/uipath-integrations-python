@@ -162,7 +162,8 @@ class UiPathGoogleADKRuntime:
                     # (skip transfer_to_agent — it's agent delegation, not a tool)
                     tools_node = f"{author}_tools"
                     real_calls = [
-                        fc for fc in event.get_function_calls()
+                        fc
+                        for fc in event.get_function_calls()
                         if fc.name != _TRANSFER_FN
                     ]
                     if real_calls and active_tools != tools_node:
@@ -182,7 +183,8 @@ class UiPathGoogleADKRuntime:
                     # Tools node: COMPLETED on real function responses,
                     # then re-STARTED for the agent to shift highlight back
                     real_responses = [
-                        fr for fr in event.get_function_responses()
+                        fr
+                        for fr in event.get_function_responses()
                         if fr.name != _TRANSFER_FN
                     ]
                     if real_responses and active_tools:
@@ -271,17 +273,15 @@ class UiPathGoogleADKRuntime:
         output_schema = resolve_output_schema(self.agent)
         if output_schema and final_text:
             try:
-                return output_schema.model_validate_json(
-                    final_text
-                ).model_dump(exclude_none=True)
+                return output_schema.model_validate_json(final_text).model_dump(
+                    exclude_none=True
+                )
             except Exception:
                 pass
 
         return final_text or ""
 
-    def _prepare_user_message(
-        self, input: dict[str, Any] | None
-    ) -> types.Content:
+    def _prepare_user_message(self, input: dict[str, Any] | None) -> types.Content:
         """Prepare user message from UiPath input dictionary.
 
         If input contains 'messages', uses that as text (conversational).
@@ -340,18 +340,22 @@ class UiPathGoogleADKRuntime:
                 }
                 event_type = "agent_transfer" if is_transfer else "function_call"
                 # Agent node always gets the event
-                events.append(UiPathRuntimeStateEvent(
-                    payload=payload,
-                    node_name=author,
-                    metadata={"event_type": event_type},
-                ))
+                events.append(
+                    UiPathRuntimeStateEvent(
+                        payload=payload,
+                        node_name=author,
+                        metadata={"event_type": event_type},
+                    )
+                )
                 # Tools node only for real tool calls (not transfers)
                 if not is_transfer:
-                    events.append(UiPathRuntimeStateEvent(
-                        payload=payload,
-                        node_name=tools_node,
-                        metadata={"event_type": "function_call"},
-                    ))
+                    events.append(
+                        UiPathRuntimeStateEvent(
+                            payload=payload,
+                            node_name=tools_node,
+                            metadata={"event_type": "function_call"},
+                        )
+                    )
             return events
 
         # Function responses → agent node only (the agent receives the result;
@@ -365,38 +369,46 @@ class UiPathGoogleADKRuntime:
                     "function_name": fr.name or "unknown",
                     "function_response": serialize_defaults(fr.response or {}),
                 }
-                events.append(UiPathRuntimeStateEvent(
-                    payload=payload,
-                    node_name=author,
-                    metadata={"event_type": "function_response"},
-                ))
+                events.append(
+                    UiPathRuntimeStateEvent(
+                        payload=payload,
+                        node_name=author,
+                        metadata={"event_type": "function_response"},
+                    )
+                )
             return events
 
         # Agent transfer (from actions, not function calls)
         if event.actions.transfer_to_agent:
-            events.append(UiPathRuntimeStateEvent(
-                payload={"transfer_to_agent": event.actions.transfer_to_agent},
-                node_name=author,
-                metadata={"event_type": "agent_transfer"},
-            ))
+            events.append(
+                UiPathRuntimeStateEvent(
+                    payload={"transfer_to_agent": event.actions.transfer_to_agent},
+                    node_name=author,
+                    metadata={"event_type": "agent_transfer"},
+                )
+            )
             return events
 
         # State delta
         if event.actions.state_delta:
-            events.append(UiPathRuntimeStateEvent(
-                payload=serialize_defaults(event.actions.state_delta),
-                node_name=author,
-                metadata={"event_type": "state_delta"},
-            ))
+            events.append(
+                UiPathRuntimeStateEvent(
+                    payload=serialize_defaults(event.actions.state_delta),
+                    node_name=author,
+                    metadata={"event_type": "state_delta"},
+                )
+            )
             return events
 
         # Partial streaming content
         if event.partial and event.content:
-            events.append(UiPathRuntimeStateEvent(
-                payload=serialize_defaults(event.content),
-                node_name=author,
-                metadata={"event_type": "partial"},
-            ))
+            events.append(
+                UiPathRuntimeStateEvent(
+                    payload=serialize_defaults(event.content),
+                    node_name=author,
+                    metadata={"event_type": "partial"},
+                )
+            )
             return events
 
         return events

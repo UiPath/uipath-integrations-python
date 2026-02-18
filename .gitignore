@@ -182,3 +182,11 @@ cython_debug/
 /.vscode/launch.json
 
 playground.py
+
+# Samples generated files
+**/samples/**/.agent/
+**/samples/**/.claude/
+**/samples/**/AGENTS.md
+**/samples/**/CLAUDE.md
+**/samples/**/bindings.json
+**/samples/**/entry-points.json

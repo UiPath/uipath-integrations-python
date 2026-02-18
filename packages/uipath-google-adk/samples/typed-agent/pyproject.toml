@@ -1,0 +1,19 @@
+[project]
+name = "typed-agent"
+version = "0.0.1"
+description = "Google ADK agent with strongly-typed input/output schemas"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-google-adk>=0.0.1, <0.1.0",
+    "google-adk>=1.25.0",
+    "uipath>=2.8.18, <2.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]
+
+[tool.uv]
+override-dependencies = ["opentelemetry-sdk>=1.39.0,<1.40.0"]

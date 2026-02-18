@@ -1,0 +1,19 @@
+[project]
+name = "multi-agent-remote"
+version = "0.0.1"
+description = "Google ADK multi-agent example with RemoteA2aAgent sub-agents via A2A protocol"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-google-adk",
+    "google-adk[a2a]>=1.25.0",
+    "uipath>=2.8.18, <2.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]
+
+[tool.uv]
+override-dependencies = ["opentelemetry-sdk>=1.39.0,<1.40.0"]

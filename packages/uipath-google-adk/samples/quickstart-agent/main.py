@@ -1,6 +1,11 @@
 import httpx
 from google.adk.agents import Agent
 
+from uipath_google_adk.chat import UiPathGemini
+
+# from uipath_google_adk.chat import UiPathOpenAI
+# from uipath_google_adk.chat import UiPathAnthropic
+
 
 def get_weather(location: str) -> str:
     """Get the current weather for a location using the Open-Meteo API.
@@ -55,7 +60,9 @@ def get_weather(location: str) -> str:
 
 agent = Agent(
     name="weather_agent",
-    model="gemini-2.5-flash",
+    model=UiPathGemini(model="gemini-2.5-flash"),
+    # model=UiPathOpenAI(model="gpt-4o-mini-2024-07-18"),
+    # model=UiPathAnthropic(model="anthropic.claude-haiku-4-5-20251001-v1:0"),
     instruction="You are a helpful weather assistant. Use the get_weather tool to provide weather information.",
     tools=[get_weather],
 )

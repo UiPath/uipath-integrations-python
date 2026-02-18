@@ -1,7 +1,7 @@
 {
   "$schema": "https://cloud.uipath.com/draft/2024-12/uipath",
   "runtimeOptions": {
-    "isConversational": false
+    "isConversational": true
   },
   "packOptions": {
     "fileExtensionsIncluded": [],

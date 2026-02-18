@@ -190,3 +190,4 @@ playground.py
 **/samples/**/CLAUDE.md
 **/samples/**/bindings.json
 **/samples/**/entry-points.json
+**/samples/**/uv.lock

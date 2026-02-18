@@ -1,10 +1,12 @@
 """Factory for creating Google ADK runtimes from google_adk.json configuration."""
 
 import asyncio
+import os
 from typing import Any
 
 from google.adk.agents import BaseAgent
-from google.adk.runners import InMemoryRunner
+from google.adk.runners import Runner
+from google.adk.sessions.sqlite_session_service import SqliteSessionService
 from openinference.instrumentation.google_adk import GoogleADKInstrumentor
 from uipath.runtime import (
     UiPathRuntimeContext,
@@ -43,6 +45,9 @@ class UiPathGoogleADKRuntimeFactory:
         self._agent_loaders: dict[str, GoogleADKAgentLoader] = {}
         self._agent_lock = asyncio.Lock()
 
+        self._session_service: SqliteSessionService | None = None
+        self._session_service_lock = asyncio.Lock()
+
         self._setup_instrumentation()
 
     def _setup_instrumentation(self) -> None:
@@ -54,6 +59,31 @@ class UiPathGoogleADKRuntimeFactory:
         if self._config is None:
             self._config = GoogleADKConfig()
         return self._config
+
+    def _get_connection_string(self) -> str:
+        """Get the database path for session persistence.
+
+        Uses UiPathRuntimeContext to resolve the state file path.
+        Cleans up stale state files when not resuming.
+        """
+        path = self.context.resolved_state_file_path
+        # Delete previous state file if not resuming
+        if (
+            not self.context.resume
+            and self.context.job_id is None
+            and not self.context.keep_state_file
+        ):
+            if os.path.exists(path):
+                os.remove(path)
+        return path
+
+    async def _get_session_service(self) -> SqliteSessionService:
+        """Get or create the shared session service instance."""
+        async with self._session_service_lock:
+            if self._session_service is None:
+                db_path = self._get_connection_string()
+                self._session_service = SqliteSessionService(db_path)
+            return self._session_service
 
     async def _load_agent(self, entrypoint: str) -> BaseAgent:
         """
@@ -183,22 +213,36 @@ class UiPathGoogleADKRuntimeFactory:
         """
         Create a runtime instance from an agent.
 
-        Creates the InMemoryRunner and session eagerly so the runtime
-        is fully initialized and ready to execute.
+        Creates the Runner with persistent SqliteSessionService and
+        retrieves or creates a session for the given runtime_id.
+        Sessions persist across calls, enabling multi-turn conversations
+        where only the current user message is sent each time.
         """
-        runner = InMemoryRunner(
+        session_service = await self._get_session_service()
+        runner = Runner(
             agent=agent,
             app_name=UiPathGoogleADKRuntime.APP_NAME,
+            session_service=session_service,
         )
-        session = await runner.session_service.create_session(
+
+        # Try to resume existing session, create if not found
+        session = await session_service.get_session(
             app_name=UiPathGoogleADKRuntime.APP_NAME,
             user_id=UiPathGoogleADKRuntime.USER_ID,
+            session_id=runtime_id,
         )
+        if session is None:
+            session = await session_service.create_session(
+                app_name=UiPathGoogleADKRuntime.APP_NAME,
+                user_id=UiPathGoogleADKRuntime.USER_ID,
+                session_id=runtime_id,
+            )
 
         return UiPathGoogleADKRuntime(
             agent=agent,
             runner=runner,
             session=session,
+            session_service=session_service,
             runtime_id=runtime_id,
             entrypoint=entrypoint,
         )
@@ -232,3 +276,4 @@ class UiPathGoogleADKRuntimeFactory:
 
         self._agent_loaders.clear()
         self._agent_cache.clear()
+        self._session_service = None

@@ -9,6 +9,7 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from pydantic import BaseModel, TypeAdapter
+from uipath.core.chat import UiPathConversationMessage
 from uipath.runtime.schema import (
     UiPathRuntimeEdge,
     UiPathRuntimeGraph,
@@ -192,44 +193,50 @@ def get_entrypoints_schema(agent: BaseAgent) -> dict[str, Any]:
     return schema
 
 
+def _conversation_messages_schema() -> dict[str, Any]:
+    """Generate JSON schema for list[UiPathConversationMessage]."""
+    adapter = TypeAdapter(list[UiPathConversationMessage])
+    return adapter.json_schema()
+
+
 def _default_input_schema() -> dict[str, Any]:
-    """Default input schema using messages for conversational agents."""
-    return {
+    """Default input schema using UiPath conversation message format."""
+    messages_schema = _conversation_messages_schema()
+    schema: dict[str, Any] = {
         "type": "object",
         "properties": {
             "messages": {
-                "anyOf": [
-                    {"type": "string"},
-                    {"type": "array", "items": {"type": "object"}},
-                ],
+                "type": "array",
+                "items": messages_schema["items"],
                 "title": "Messages",
-                "description": "User messages to send to the agent",
+                "description": "UiPath conversation messages",
             }
         },
         "required": ["messages"],
     }
+    if "$defs" in messages_schema:
+        schema["$defs"] = messages_schema["$defs"]
+    return schema
 
 
 def _default_output_schema() -> dict[str, Any]:
-    """Default output schema when no structured output is defined."""
-    return {
+    """Default output schema using UiPath conversation message format."""
+    messages_schema = _conversation_messages_schema()
+    schema: dict[str, Any] = {
         "type": "object",
         "properties": {
-            "result": {
-                "title": "Result",
-                "description": "The agent's response",
-                "anyOf": [
-                    {"type": "string"},
-                    {"type": "object"},
-                    {
-                        "type": "array",
-                        "items": {"type": "object"},
-                    },
-                ],
+            "messages": {
+                "type": "array",
+                "items": messages_schema["items"],
+                "title": "Messages",
+                "description": "UiPath conversation messages",
             }
         },
-        "required": ["result"],
+        "required": ["messages"],
     }
+    if "$defs" in messages_schema:
+        schema["$defs"] = messages_schema["$defs"]
+    return schema
 
 
 def get_agent_graph(agent: BaseAgent) -> UiPathRuntimeGraph:

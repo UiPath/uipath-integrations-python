@@ -20,7 +20,7 @@ IMPORTANT — Google ADK / Gemini API constraint:
   JSON output constrained by output_schema.
 
 Graph structure:
-  __start__ → pipeline → coordinator → research_agent (with search_web tool)
+  __start__ → pipeline → coordinator → research_agent (with search_wikipedia + search_tavily tools)
                                       → code_agent (with run_python tool)
                        → formatter (output_schema=ReportOutput)
            → __end__
@@ -29,15 +29,17 @@ Schema resolution (handled by the runtime recursively):
   - input_schema:  from FIRST sub_agent chain → coordinator.input_schema (ReportInput)
   - output_schema: from LAST sub_agent chain  → formatter.output_schema (ReportOutput)
   - output_key:    from LAST sub_agent chain  → formatter.output_key ("report")
+
+Environment variables:
+  - TAVILY_API_KEY: API key for Tavily web search (get one at https://tavily.com)
 """
 
 import io
-import json
+import os
 import sys
 import traceback
-import urllib.parse
-import urllib.request
 
+import httpx
 from google.adk.agents import Agent, SequentialAgent
 from pydantic import BaseModel, Field
 
@@ -61,28 +63,69 @@ class ReportOutput(BaseModel):
     code_snippet: str = Field(description="A relevant Python code example")
 
 
-def search_web(query: str) -> str:
-    """Search Wikipedia for information on a topic.
+def search_wikipedia(topic: str) -> str:
+    """Search Wikipedia for encyclopedic information on a topic.
+
+    Best for well-known concepts, historical facts, and established knowledge.
+
+    Args:
+        topic: The topic to look up on Wikipedia
+
+    Returns:
+        Summary text from Wikipedia, or an error message if not found
+    """
+    try:
+        resp = httpx.get(
+            f"https://en.wikipedia.org/api/rest_v1/page/summary/{topic}",
+            headers={"User-Agent": "UiPathGoogleADKSample/1.0"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        title = data.get("title", topic)
+        extract = data.get("extract", "No summary available.")
+        return f"Wikipedia — {title}: {extract}"
+    except Exception as e:
+        return f"Wikipedia search failed for '{topic}': {e}"
+
+
+def search_tavily(query: str) -> str:
+    """Search the web using Tavily for recent and real-time information.
+
+    Best for current events, recent developments, and up-to-date information
+    that may not yet be on Wikipedia.
 
     Args:
         query: The search query
 
     Returns:
-        Summary text from Wikipedia, or an error message if not found
+        Search results with snippets from relevant web pages
     """
-    encoded = urllib.parse.quote(query)
-    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}"
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "UiPathGoogleADKSample/1.0"}
-    )
+    api_key = os.environ.get("TAVILY_API_KEY", "")
+    if not api_key:
+        return "Tavily search unavailable: TAVILY_API_KEY not set"
+
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-            title = data.get("title", query)
-            extract = data.get("extract", "No summary available.")
-            return f"Wikipedia — {title}: {extract}"
+        resp = httpx.post(
+            "https://api.tavily.com/search",
+            json={"query": query, "max_results": 3, "include_answer": True},
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        parts = []
+        answer = data.get("answer")
+        if answer:
+            parts.append(f"Summary: {answer}")
+        for result in data.get("results", []):
+            title = result.get("title", "")
+            content = result.get("content", "")
+            source = result.get("url", "")
+            parts.append(f"- {title}: {content} ({source})")
+        return "\n".join(parts) if parts else "No results found."
     except Exception as e:
-        return f"Search failed for '{query}': {e}"
+        return f"Tavily search failed for '{query}': {e}"
 
 
 def run_python(code: str) -> str:
@@ -109,16 +152,21 @@ def run_python(code: str) -> str:
 
 # --- Sub-agents ---
 
-# Research agent: searches Wikipedia and gathers information
+# Research agent: has two search tools for comprehensive research.
+# - search_wikipedia: encyclopedic/established knowledge
+# - search_tavily: real-time web search for recent information
 research_agent = Agent(
     name="research_agent",
     model="gemini-2.5-flash",
     instruction=(
-        "You are a research specialist. Use the search_web tool to find "
-        "information about the given topic. Provide a thorough summary of "
-        "your findings."
+        "You are a research specialist with two search tools:\n"
+        "- search_wikipedia: for encyclopedic facts and established knowledge\n"
+        "- search_tavily: for recent developments and real-time web information\n\n"
+        "Use both tools to gather comprehensive information about the given topic. "
+        "Start with Wikipedia for foundational knowledge, then use Tavily for "
+        "recent developments. Provide a thorough summary of your findings."
     ),
-    tools=[search_web],
+    tools=[search_wikipedia, search_tavily],
 )
 
 # Code agent: writes and executes Python code related to the topic.

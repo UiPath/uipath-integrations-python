@@ -75,12 +75,12 @@ class TestGetEntrypointsSchema:
         assert "messages" in schema["input"]["required"]
 
     def test_composite_agent_has_default_output(self):
-        """Composite agents get default result output."""
+        """Composite agents get default messages output."""
         agent = _make_base_agent()
         schema = get_entrypoints_schema(agent)
 
-        assert "result" in schema["output"]["properties"]
-        assert "result" in schema["output"]["required"]
+        assert "messages" in schema["output"]["properties"]
+        assert "messages" in schema["output"]["required"]
 
     def test_llm_agent_without_schemas_has_messages(self):
         """LlmAgent without input_schema falls back to messages."""
@@ -90,11 +90,11 @@ class TestGetEntrypointsSchema:
         assert "messages" in schema["input"]["properties"]
 
     def test_llm_agent_without_schemas_has_default_output(self):
-        """LlmAgent without output_schema falls back to default output."""
+        """LlmAgent without output_schema falls back to default messages output."""
         agent = _make_llm_agent()
         schema = get_entrypoints_schema(agent)
 
-        assert "result" in schema["output"]["properties"]
+        assert "messages" in schema["output"]["properties"]
 
     def test_input_schema_replaces_messages(self):
         """LlmAgent with input_schema uses it as the full input schema."""

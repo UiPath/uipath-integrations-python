@@ -28,6 +28,17 @@ Build agents using the [OpenAI Agents SDK](https://github.com/openai/openai-agen
 - [Docs](https://uipath.github.io/uipath-python/openai-agents/quick_start/)
 - [Samples](packages/uipath-openai-agents/samples/)
 
+### Google ADK
+
+[![PyPI - Version](https://img.shields.io/pypi/v/uipath-google-adk)](https://pypi.org/project/uipath-google-adk/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/uipath-google-adk.svg)](https://pypi.org/project/uipath-google-adk/)
+
+Build agents using the [Google Agent Development Kit (ADK)](https://github.com/google/adk-python):
+
+- [README](packages/uipath-google-adk/README.md)
+- [Docs](https://uipath.github.io/uipath-python/google-adk/quick_start/)
+- [Samples](packages/uipath-google-adk/samples/)
+
 
 ## Structure
 
@@ -37,7 +48,8 @@ This repository is organized as a monorepo with multiple packages:
 uipath-integrations-python/
 └── packages/
     ├── uipath-llamaindex/      # LlamaIndex runtime
-    └── uipath-openai-agents/   # OpenAI Agents runtime
+    ├── uipath-openai-agents/   # OpenAI Agents runtime
+    └── uipath-google-adk/      # Google ADK runtime
 ```
 
 ## Development

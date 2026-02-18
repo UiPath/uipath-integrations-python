@@ -46,7 +46,7 @@ llamaindex = "uipath_llamaindex.runtime:register_runtime_factory"
 
 [project.urls]
 Homepage = "https://uipath.com"
-Repository = "https://github.com/UiPath/uipath-integrations-python/tree/main/packages/uipath-llamaindex"
+Repository = "https://github.com/UiPath/uipath-integrations-python/"
 
 [build-system]
 requires = ["hatchling"]

@@ -157,6 +157,69 @@ jobs:
         working-directory: packages/uipath-openai-agents
         run: uv run ruff format --check .
 
+  lint-google-adk:
+    name: Lint uipath-google-adk
+    needs: detect-changed-packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if package changed
+        id: check
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'test-core-dev-version') }}" == "true" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "reason=custom-version-testing" >> $GITHUB_OUTPUT
+          elif echo '${{ needs.detect-changed-packages.outputs.packages }}' | jq -e 'index("uipath-google-adk")' > /dev/null; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+          else
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "reason=no-changes" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip
+        if: steps.check.outputs.skip == 'true'
+        run: |
+          if [[ "${{ steps.check.outputs.reason }}" == "custom-version-testing" ]]; then
+            echo "Skipping - custom version testing enabled"
+          else
+            echo "Skipping - no changes to uipath-google-adk"
+          fi
+
+      - name: Checkout
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        if: steps.check.outputs.skip != 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Setup Python
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "packages/uipath-google-adk/.python-version"
+
+      - name: Install dependencies
+        if: steps.check.outputs.skip != 'true'
+        working-directory: packages/uipath-google-adk
+        run: uv sync --all-extras
+
+      - name: Check static types
+        if: steps.check.outputs.skip != 'true'
+        working-directory: packages/uipath-google-adk
+        run: uv run mypy --config-file pyproject.toml .
+
+      - name: Check linting
+        if: steps.check.outputs.skip != 'true'
+        working-directory: packages/uipath-google-adk
+        run: uv run ruff check .
+
+      - name: Check formatting
+        if: steps.check.outputs.skip != 'true'
+        working-directory: packages/uipath-google-adk
+        run: uv run ruff format --check .
+
   skip-lint:
     name: Skip Lint (Custom Version Testing)
     runs-on: ubuntu-latest

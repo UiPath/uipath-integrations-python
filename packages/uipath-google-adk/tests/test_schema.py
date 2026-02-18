@@ -128,9 +128,7 @@ class TestGetEntrypointsSchema:
 
     def test_output_schema_takes_precedence_over_output_key(self):
         """output_schema takes precedence over output_key."""
-        agent = _make_llm_agent(
-            output_schema=OutputModel, output_key="response"
-        )
+        agent = _make_llm_agent(output_schema=OutputModel, output_key="response")
         schema = get_entrypoints_schema(agent)
 
         assert "answer" in schema["output"]["properties"]
@@ -151,7 +149,9 @@ class TestResolveOutputSchema:
         tool.name = "search"
         agent = _make_llm_agent(output_schema=OutputModel, tools=[tool])
 
-        with pytest.raises(ValueError, match="has output_schema set but also has tools"):
+        with pytest.raises(
+            ValueError, match="has output_schema set but also has tools"
+        ):
             resolve_output_schema(agent)
 
     def test_output_schema_with_sub_agents_raises(self):
@@ -184,9 +184,7 @@ class TestResolveOutputSchema:
         """Composite agent resolves output_schema from the last sub_agent."""
         formatter = _make_llm_agent(name="formatter", output_schema=OutputModel)
         worker = _make_llm_agent(name="worker")
-        pipeline = _make_base_agent(
-            name="pipeline", sub_agents=[worker, formatter]
-        )
+        pipeline = _make_base_agent(name="pipeline", sub_agents=[worker, formatter])
 
         assert resolve_output_schema(pipeline) is OutputModel
 
@@ -194,12 +192,12 @@ class TestResolveOutputSchema:
         """Composite agent raises if last sub_agent has output_schema + tools."""
         tool = MagicMock()
         tool.name = "search"
-        bad_agent = _make_llm_agent(
-            name="bad", output_schema=OutputModel, tools=[tool]
-        )
+        bad_agent = _make_llm_agent(name="bad", output_schema=OutputModel, tools=[tool])
         pipeline = _make_base_agent(name="pipeline", sub_agents=[bad_agent])
 
-        with pytest.raises(ValueError, match="has output_schema set but also has tools"):
+        with pytest.raises(
+            ValueError, match="has output_schema set but also has tools"
+        ):
             resolve_output_schema(pipeline)
 
 

@@ -1,6 +1,5 @@
 """Tests for GoogleADKAgentLoader."""
 
-
 import pytest
 
 from uipath_google_adk.runtime.errors import UiPathGoogleADKRuntimeError
@@ -19,7 +18,9 @@ class TestGoogleADKAgentLoaderFromPathString:
 
     def test_path_with_multiple_colons(self):
         """Test path with multiple colons uses first split."""
-        loader = GoogleADKAgentLoader.from_path_string("test", "path/to/file.py:var:extra")
+        loader = GoogleADKAgentLoader.from_path_string(
+            "test", "path/to/file.py:var:extra"
+        )
         assert loader.file_path == "path/to/file.py"
         assert loader.variable_name == "var:extra"
 

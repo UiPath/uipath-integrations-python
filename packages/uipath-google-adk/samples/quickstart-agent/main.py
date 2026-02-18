@@ -32,25 +32,26 @@ def get_weather(location: str) -> str:
         return f"Geocoding failed for '{location}': {e}"
 
     # Fetch current weather
-    weather_url = (
-        "https://api.open-meteo.com/v1/forecast?"
-        + urllib.parse.urlencode({
+    weather_url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode(
+        {
             "latitude": lat,
             "longitude": lon,
             "current": "temperature_2m,wind_speed_10m,weather_code",
             "temperature_unit": "celsius",
-        })
+        }
     )
     try:
         with urllib.request.urlopen(weather_url, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         current = data.get("current", {})
-        return json.dumps({
-            "location": f"{name}, {country}",
-            "temperature_celsius": current.get("temperature_2m"),
-            "wind_speed_kmh": current.get("wind_speed_10m"),
-            "weather_code": current.get("weather_code"),
-        })
+        return json.dumps(
+            {
+                "location": f"{name}, {country}",
+                "temperature_celsius": current.get("temperature_2m"),
+                "wind_speed_kmh": current.get("wind_speed_10m"),
+                "weather_code": current.get("weather_code"),
+            }
+        )
     except Exception as e:
         return f"Weather fetch failed: {e}"
 

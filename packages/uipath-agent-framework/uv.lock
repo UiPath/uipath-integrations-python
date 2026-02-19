@@ -6,6 +6,19 @@ requires-python = ">=3.11"
 prerelease-mode = "allow"
 
 [[package]]
+name = "agent-framework-anthropic"
+version = "1.0.0b260212"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "agent-framework-core" },
+    { name = "anthropic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ff/fb/db7157cd342ed079a467a4080f3d5aadd403b798e25b6c52b638c317f44c/agent_framework_anthropic-1.0.0b260212.tar.gz", hash = "sha256:46adac3ff7cfedbf97d76fafa9c6a461b4ad1b53c075336d300800a283289f21", size = 12977, upload-time = "2026-02-13T00:27:13.58Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/1f/0c016c683b922919c5aabb8591fd04cffec7432a224169b029049e90967c/agent_framework_anthropic-1.0.0b260212-py3-none-any.whl", hash = "sha256:8c2a8bb5474b7984994b7e6cf0318f06338765f406c50a3d7336f38ed44c9444", size = 13025, upload-time = "2026-02-13T00:38:15.841Z" },
+]
+
+[[package]]
 name = "agent-framework-core"
 version = "1.0.0b260212"
 source = { registry = "https://pypi.org/simple" }
@@ -149,6 +162,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl", hash = "sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e", size = 7490, upload-time = "2025-07-03T22:54:42.156Z" },
+]
+
+[[package]]
+name = "aiosqlite"
+version = "0.22.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/8a/64761f4005f17809769d23e518d915db74e6310474e733e3593cfc854ef1/aiosqlite-0.22.1.tar.gz", hash = "sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650", size = 14821, upload-time = "2025-12-23T19:25:43.997Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl", hash = "sha256:21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb", size = 17405, upload-time = "2025-12-23T19:25:42.139Z" },
 ]
 
 [[package]]
@@ -2426,10 +2448,11 @@ wheels = [
 
 [[package]]
 name = "uipath-agent-framework"
-version = "0.0.1"
+version = "0.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "agent-framework-core" },
+    { name = "aiosqlite" },
     { name = "openinference-instrumentation-agent-framework" },
     { name = "uipath" },
     { name = "uipath-runtime" },
@@ -2437,6 +2460,7 @@ dependencies = [
 
 [package.optional-dependencies]
 anthropic = [
+    { name = "agent-framework-anthropic" },
     { name = "anthropic" },
 ]
 
@@ -2453,7 +2477,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "agent-framework-anthropic", marker = "extra == 'anthropic'", specifier = ">=1.0.0b260212" },
     { name = "agent-framework-core", specifier = ">=1.0.0b260212" },
+    { name = "aiosqlite", specifier = ">=0.20.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.43.0" },
     { name = "openinference-instrumentation-agent-framework", specifier = ">=0.1.0" },
     { name = "uipath", specifier = ">=2.8.41,<2.9.0" },

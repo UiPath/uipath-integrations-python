@@ -19,6 +19,4 @@ dev = [
 [tool.uv]
 prerelease = "allow"
 
-[tool.uv.sources]
-uipath-dev = { path = "../../../../../uipath-dev-python", editable = true }
-uipath-agent-framework = { path = "../../", editable = true }
+

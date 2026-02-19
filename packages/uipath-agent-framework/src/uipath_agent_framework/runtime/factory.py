@@ -1,6 +1,7 @@
 """Factory for creating Agent Framework runtimes from agent_framework.json configuration."""
 
 import asyncio
+import os
 from typing import Any
 
 from agent_framework import BaseAgent
@@ -25,6 +26,7 @@ from uipath_agent_framework.runtime.errors import (
 )
 from uipath_agent_framework.runtime.loader import AgentFrameworkAgentLoader
 from uipath_agent_framework.runtime.runtime import UiPathAgentFrameworkRuntime
+from uipath_agent_framework.runtime.storage import SqliteSessionStore
 
 
 class UiPathAgentFrameworkRuntimeFactory:
@@ -47,6 +49,9 @@ class UiPathAgentFrameworkRuntimeFactory:
         self._agent_loaders: dict[str, AgentFrameworkAgentLoader] = {}
         self._agent_lock = asyncio.Lock()
 
+        self._session_store: SqliteSessionStore | None = None
+        self._session_store_lock = asyncio.Lock()
+
         self._setup_instrumentation()
 
     def _setup_instrumentation(self) -> None:
@@ -63,6 +68,32 @@ class UiPathAgentFrameworkRuntimeFactory:
         if self._config is None:
             self._config = AgentFrameworkConfig()
         return self._config
+
+    def _get_db_path(self) -> str:
+        """Get the database path for session persistence.
+
+        Uses UiPathRuntimeContext to resolve the state file path.
+        Cleans up stale state files when not resuming.
+        """
+        path = self.context.resolved_state_file_path
+        # Delete previous state file if not resuming
+        if (
+            not self.context.resume
+            and self.context.job_id is None
+            and not self.context.keep_state_file
+        ):
+            if os.path.exists(path):
+                os.remove(path)
+        return path
+
+    async def _get_session_store(self) -> SqliteSessionStore:
+        """Get or create the shared session store instance."""
+        async with self._session_store_lock:
+            if self._session_store is None:
+                db_path = self._get_db_path()
+                self._session_store = SqliteSessionStore(db_path)
+                await self._session_store.setup()
+            return self._session_store
 
     async def _load_agent(self, entrypoint: str) -> BaseAgent:
         """
@@ -182,11 +213,19 @@ class UiPathAgentFrameworkRuntimeFactory:
         runtime_id: str,
         entrypoint: str,
     ) -> UiPathRuntimeProtocol:
-        """Create a runtime instance from an agent."""
+        """Create a runtime instance from an agent.
+
+        Creates the runtime with a shared SqliteSessionStore for persistent
+        conversation history. Sessions are isolated by runtime_id — each
+        runtime instance gets its own conversation state.
+        """
+        session_store = await self._get_session_store()
+
         return UiPathAgentFrameworkRuntime(
             agent=agent,
             runtime_id=runtime_id,
             entrypoint=entrypoint,
+            session_store=session_store,
         )
 
     async def new_runtime(
@@ -218,3 +257,7 @@ class UiPathAgentFrameworkRuntimeFactory:
 
         self._agent_loaders.clear()
         self._agent_cache.clear()
+
+        if self._session_store:
+            await self._session_store.dispose()
+            self._session_store = None

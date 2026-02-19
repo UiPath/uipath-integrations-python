@@ -103,7 +103,7 @@ class UiPathAnthropicClient:
         _check_anthropic_dependency()
 
         from agent_framework_anthropic import AnthropicClient
-        from anthropic import AsyncAnthropic  # type: ignore[import-not-found]
+        from anthropic import AsyncAnthropic  # type: ignore[import-untyped]
 
         uipath_url, token = get_uipath_config()
         gateway_url = build_gateway_url("awsbedrock", model, uipath_url)

@@ -9,6 +9,8 @@ from uipath.runtime.schema import (
     UiPathRuntimeEdge,
     UiPathRuntimeGraph,
     UiPathRuntimeNode,
+    transform_nullable_types,
+    transform_references,
 )
 
 from .context import get_agent_context_type
@@ -122,10 +124,10 @@ def get_entrypoints_schema(agent: Agent) -> dict[str, Any]:
         try:
             adapter = TypeAdapter(context_type)
             context_schema = adapter.json_schema()
-            unpacked = _resolve_refs(context_schema)
+            unpacked, _ = transform_references(context_schema)
 
             # Merge context properties with messages
-            context_props = _process_nullable_types(unpacked.get("properties", {}))
+            context_props = transform_nullable_types(unpacked.get("properties", {}))
             input_properties.update(context_props)
 
             # Add context required fields (messages is already required)
@@ -155,8 +157,8 @@ def get_entrypoints_schema(agent: Agent) -> dict[str, Any]:
             output_schema = adapter.json_schema()
 
             # Resolve references and handle nullable types
-            unpacked_output = _resolve_refs(output_schema)
-            schema["output"]["properties"] = _process_nullable_types(
+            unpacked_output, _ = transform_references(output_schema)
+            schema["output"]["properties"] = transform_nullable_types(
                 unpacked_output.get("properties", {})
             )
             schema["output"]["required"] = unpacked_output.get("required", [])
@@ -418,92 +420,6 @@ def _get_tool_name(tool: Any) -> str | None:
         return class_name.lower()
 
     return None
-
-
-def _resolve_refs(
-    schema: dict[str, Any],
-    root: dict[str, Any] | None = None,
-    visited: set[str] | None = None,
-) -> dict[str, Any]:
-    """
-    Recursively resolves $ref references in a JSON schema.
-
-    Args:
-        schema: The schema dictionary to resolve
-        root: The root schema for reference resolution
-        visited: Set of visited references to detect circular dependencies
-
-    Returns:
-        Resolved schema dictionary
-    """
-    if root is None:
-        root = schema
-
-    if visited is None:
-        visited = set()
-
-    if isinstance(schema, dict):
-        if "$ref" in schema:
-            ref_path = schema["$ref"]
-
-            if ref_path in visited:
-                # Circular dependency detected
-                return {
-                    "type": "object",
-                    "description": f"Circular reference to {ref_path}",
-                }
-
-            visited.add(ref_path)
-
-            # Resolve the reference - handle both #/definitions/ and #/$defs/ formats
-            ref_parts = ref_path.lstrip("#/").split("/")
-            ref_schema = root
-            for part in ref_parts:
-                ref_schema = ref_schema.get(part, {})
-
-            result = _resolve_refs(ref_schema, root, visited)
-
-            # Remove from visited after resolution
-            visited.discard(ref_path)
-
-            return result
-
-        return {k: _resolve_refs(v, root, visited) for k, v in schema.items()}
-
-    elif isinstance(schema, list):
-        return [_resolve_refs(item, root, visited) for item in schema]
-
-    return schema
-
-
-def _process_nullable_types(properties: dict[str, Any]) -> dict[str, Any]:
-    """
-    Process properties to handle nullable types correctly.
-
-    This matches the original implementation that adds "nullable": True
-    instead of simplifying the schema structure.
-
-    Args:
-        properties: The properties dictionary from a schema
-
-    Returns:
-        Processed properties with nullable types marked
-    """
-    result = {}
-    for name, prop in properties.items():
-        if "anyOf" in prop:
-            types = [item.get("type") for item in prop["anyOf"] if "type" in item]
-            if "null" in types:
-                non_null_types = [t for t in types if t != "null"]
-                if len(non_null_types) == 1:
-                    result[name] = {"type": non_null_types[0], "nullable": True}
-                else:
-                    result[name] = {"type": non_null_types, "nullable": True}
-            else:
-                result[name] = prop
-        else:
-            result[name] = prop
-    return result
 
 
 __all__ = [

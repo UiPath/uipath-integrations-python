@@ -5,12 +5,12 @@ description = "RAG Assistant sample using UiPath OpenAI Agents"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "uipath-openai-agents>=0.0.1, <0.1.0",
+    "uipath",
+    "uipath-openai-agents",
     "openai-agents>=0.6.5",
-    "uipath>=2.8.2, <2.9.0",
 ]
 
 [dependency-groups]
 dev = [
-    "uipath-dev>=0.0.8",
+    "uipath-dev",
 ]

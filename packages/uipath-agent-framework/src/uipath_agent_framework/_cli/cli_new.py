@@ -38,7 +38,7 @@ version = "0.0.1"
 description = "{project_name}"
 authors = [{{ name = "John Doe", email = "john.doe@myemail.com" }}]
 dependencies = [
-    "uipath-agent-framework>=0.0.1, <0.1.0",
+    "uipath-agent-framework",
 ]
 requires-python = ">=3.11"
 """

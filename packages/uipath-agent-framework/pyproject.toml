@@ -22,7 +22,7 @@ maintainers = [
 ]
 
 [project.optional-dependencies]
-anthropic = ["anthropic>=0.43.0"]
+anthropic = ["anthropic>=0.43.0", "agent-framework-anthropic>=1.0.0b260212"]
 
 [project.entry-points."uipath.middlewares"]
 register = "uipath_agent_framework.middlewares:register_middleware"

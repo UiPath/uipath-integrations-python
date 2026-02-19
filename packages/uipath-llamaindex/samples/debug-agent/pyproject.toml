@@ -5,11 +5,11 @@ description = "UiPath LlamaIndex Debug Agent"
 authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
 requires-python = ">=3.11"
 dependencies = [
-    "uipath-llamaindex>=0.1.2",
+    "uipath-llamaindex",
 ]
 
 [dependency-groups]
 dev = [
-    "uipath-dev>=0.0.8",
+    "uipath-dev",
 ]
 

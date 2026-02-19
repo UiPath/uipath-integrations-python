@@ -8,6 +8,7 @@ from uuid import uuid4
 from agent_framework import (
     AgentResponse,
     AgentResponseUpdate,
+    AgentSession,
     BaseAgent,
     Content,
     FunctionTool,
@@ -36,6 +37,7 @@ from .schema import (
     get_agent_tools,
     get_entrypoints_schema,
 )
+from .storage import SqliteSessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +50,13 @@ class UiPathAgentFrameworkRuntime:
         agent: BaseAgent,
         runtime_id: str | None = None,
         entrypoint: str | None = None,
+        session_store: SqliteSessionStore | None = None,
     ):
         self.agent: BaseAgent = agent
         self.runtime_id: str = runtime_id or "default"
         self.entrypoint: str | None = entrypoint
         self.chat = AgentFrameworkChatMessagesMapper()
+        self._session_store = session_store
 
     @staticmethod
     def _build_agent_tool_names(agent: BaseAgent) -> set[str]:
@@ -84,6 +88,30 @@ class UiPathAgentFrameworkRuntime:
                 mapping[tool.name] = agent_name
         return mapping
 
+    async def _load_session(self) -> AgentSession:
+        """Load or create an AgentSession for this runtime_id.
+
+        If a session store is configured, loads the persisted session state.
+        Otherwise creates a fresh session each time.
+        """
+        if self._session_store:
+            session_data = await self._session_store.load_session(self.runtime_id)
+            if session_data is not None:
+                logger.debug(
+                    "Restoring session from store for runtime_id=%s",
+                    self.runtime_id,
+                )
+                return AgentSession.from_dict(session_data)  # type: ignore[attr-defined]
+
+        return self.agent.create_session(session_id=self.runtime_id)  # type: ignore[attr-defined]
+
+    async def _save_session(self, session: AgentSession) -> None:
+        """Persist the session state after execution."""
+        if self._session_store:
+            session_data = session.to_dict()  # type: ignore[attr-defined]
+            await self._session_store.save_session(self.runtime_id, session_data)
+            logger.debug("Saved session to store for runtime_id=%s", self.runtime_id)
+
     async def execute(
         self,
         input: dict[str, Any] | None = None,
@@ -92,7 +120,9 @@ class UiPathAgentFrameworkRuntime:
         """Execute the agent with the provided input and return the result."""
         try:
             user_input = self._prepare_input(input)
-            response = await self.agent.run(user_input)  # type: ignore[attr-defined]
+            session = await self._load_session()
+            response = await self.agent.run(user_input, session=session)  # type: ignore[attr-defined]
+            await self._save_session(session)
             output = self._extract_output(response)
             return self._create_success_result(output)
         except Exception as e:
@@ -115,6 +145,7 @@ class UiPathAgentFrameworkRuntime:
         """
         try:
             user_input = self._prepare_input(input)
+            session = await self._load_session()
             agent_name = self.agent.name or "agent"
 
             # Pre-compute which tool names correspond to sub-agents
@@ -132,7 +163,7 @@ class UiPathAgentFrameworkRuntime:
             active_tools: str | None = None
             final_text = ""
 
-            response_stream = self.agent.run(user_input, stream=True)  # type: ignore[attr-defined]
+            response_stream = self.agent.run(user_input, stream=True, session=session)  # type: ignore[attr-defined]
             async for update in response_stream:
                 if not isinstance(update, AgentResponseUpdate):
                     continue
@@ -289,6 +320,9 @@ class UiPathAgentFrameworkRuntime:
             # Close any open conversation message
             for msg_event in self.chat.close_message():
                 yield UiPathRuntimeMessageEvent(payload=msg_event)
+
+            # Persist session state after streaming completes
+            await self._save_session(session)
 
             # Get final response
             final_response = await response_stream.get_final_response()

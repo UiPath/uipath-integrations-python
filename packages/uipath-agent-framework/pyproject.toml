@@ -1,11 +1,12 @@
 [project]
 name = "uipath-agent-framework"
-version = "0.0.1"
+version = "0.0.2"
 description = "Python SDK that enables developers to build and deploy Microsoft Agent Framework agents to the UiPath Cloud Platform"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "agent-framework-core>=1.0.0b260212",
+    "aiosqlite>=0.20.0",
     "openinference-instrumentation-agent-framework>=0.1.0",
     "uipath>=2.8.41, <2.9.0",
     "uipath-runtime>=0.9.0, <0.10.0",
@@ -90,6 +91,14 @@ ignore_errors = true
 module = "openinference.*"
 ignore_missing_imports = true
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "aiosqlite.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["anthropic", "anthropic.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "agent_framework_anthropic.*"

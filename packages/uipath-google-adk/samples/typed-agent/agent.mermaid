@@ -1,0 +1,15 @@
+flowchart TB
+  __start__(__start__)
+  pipeline(pipeline)
+  researcher(researcher)
+  researcher_tools(tools)
+  formatter(formatter)
+  __end__(__end__)
+  researcher --> researcher_tools
+  researcher_tools --> researcher
+  pipeline --> researcher
+  researcher --> pipeline
+  pipeline --> formatter
+  formatter --> pipeline
+  __start__ --> |input|pipeline
+  pipeline --> |output|__end__

@@ -5,9 +5,9 @@ description = "Quickstart Google ADK agent example"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "uipath-google-adk[anthropic]>=0.0.1, <0.1.0",
+    "uipath",
+    "uipath-google-adk[anthropic]",
     "google-adk>=1.25.0",
-    "uipath>=2.8.18, <2.9.0",
 ]
 
 [dependency-groups]
@@ -17,7 +17,3 @@ dev = [
 
 [tool.uv]
 override-dependencies = ["opentelemetry-sdk>=1.39.0,<1.40.0"]
-
-[tool.uv.sources]
-uipath-dev = { path = "../../../../../uipath-dev-python", editable = true }
-uipath-google-adk = { path = "../../", editable = true }

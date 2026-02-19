@@ -1,3 +1,10 @@
+# Multi-Agent
+
+A three-stage sequential agent that coordinates research (Wikipedia + Tavily), code generation, and structured report formatting.
+
+## Agent Graph
+
+```mermaid
 flowchart TB
   __start__(__start__)
   pipeline(pipeline)
@@ -22,3 +29,16 @@ flowchart TB
   formatter --> pipeline
   __start__ --> |input|pipeline
   pipeline --> |output|__end__
+```
+
+## Run
+
+```
+uipath run agent '{"topic": "machine learning", "depth": "detailed"}'
+```
+
+## Debug
+
+```
+uipath dev web
+```

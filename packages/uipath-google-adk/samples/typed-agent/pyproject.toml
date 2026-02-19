@@ -5,9 +5,9 @@ description = "Google ADK agent with strongly-typed input/output schemas"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "uipath-google-adk>=0.0.1, <0.1.0",
+    "uipath",
+    "uipath-google-adk",
     "google-adk>=1.25.0",
-    "uipath>=2.8.18, <2.9.0",
 ]
 
 [dependency-groups]

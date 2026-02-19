@@ -8,3 +8,6 @@ Sample agents built with [Agent Framework](https://github.com/microsoft/agent-fr
 |--------|-------------|
 | [quickstart-agent](./quickstart-agent/) | Single agent with tool calling: fetches live weather data for any location |
 | [multi-agent](./multi-agent/) | Multi-agent coordinator: delegates research and code execution to specialist sub-agents via `as_tool()` |
+| [group-chat](./group-chat/) | Group chat orchestration: researcher, critic, and writer discuss a topic with an orchestrator picking speakers |
+| [concurrent](./concurrent/) | Concurrent orchestration: sentiment, topic extraction, and summarization agents analyze text in parallel |
+| [handoff](./handoff/) | Handoff orchestration: customer support agents transfer control to specialists with explicit routing rules |

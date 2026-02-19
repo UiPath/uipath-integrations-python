@@ -1,0 +1,16 @@
+flowchart TB
+  __start__(__start__)
+  __end__(__end__)
+  dispatcher(dispatcher)
+  sentiment(sentiment)
+  topic_extractor(topic_extractor)
+  summarizer(summarizer)
+  aggregator(aggregator)
+  __start__ --> |input|dispatcher
+  dispatcher --> sentiment
+  dispatcher --> topic_extractor
+  dispatcher --> summarizer
+  sentiment --> aggregator
+  topic_extractor --> aggregator
+  summarizer --> aggregator
+  aggregator --> |output|__end__

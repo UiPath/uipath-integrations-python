@@ -1,7 +1,7 @@
 [project]
-name = "multi-agent"
+name = "group-chat"
 version = "0.0.1"
-description = "Multi-agent Agent Framework example with coordinator pattern"
+description = "Group chat: multiple agents discuss a topic with an orchestrator picking speakers"
 authors = [{ name = "John Doe" }]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,6 +9,7 @@ dependencies = [
     "uipath",
     "uipath-agent-framework",
     "agent-framework-core>=1.0.0b260212",
+    "agent-framework-orchestrations>=1.0.0b260212",
 ]
 
 [dependency-groups]
@@ -18,7 +19,3 @@ dev = [
 
 [tool.uv]
 prerelease = "allow"
-
-[tool.uv.sources]
-uipath-agent-framework = { path = "../../", editable = true }
-uipath-dev = { path = "../../../../../uipath-dev-python", editable = true }

@@ -50,7 +50,7 @@ def run_python(code: str) -> str:
         sys.stdout = old_stdout
 
 
-client = UiPathOpenAIChatClient(model="gpt-4o-mini")
+client = UiPathOpenAIChatClient(model="gpt-5-mini-2025-08-07")
 
 research_agent = client.as_agent(
     name="research_agent",

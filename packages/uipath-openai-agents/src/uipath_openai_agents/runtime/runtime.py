@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from agents import Agent, Runner
 from pydantic import BaseModel
+from uipath.core.serialization import serialize_defaults
 from uipath.runtime import (
     UiPathExecuteOptions,
     UiPathRuntimeResult,
@@ -20,7 +21,6 @@ from uipath.runtime.events import (
 )
 from uipath.runtime.schema import UiPathRuntimeSchema
 
-from ._serialize import serialize_output
 from .context import get_agent_context_type, parse_input_to_context
 from .errors import UiPathOpenAIAgentsErrorCode, UiPathOpenAIAgentsRuntimeError
 from .schema import get_agent_schema, get_entrypoints_schema
@@ -207,12 +207,12 @@ class UiPathOpenAIAgentRuntime:
                 # Determine if this is a message or state event
                 if event_name in ["message_output_created", "reasoning_item_created"]:
                     return UiPathRuntimeMessageEvent(
-                        payload=serialize_output(event_item),
+                        payload=serialize_defaults(event_item),
                         metadata={"event_name": event_name},
                     )
                 else:
                     return UiPathRuntimeStateEvent(
-                        payload=serialize_output(event_item),
+                        payload=serialize_defaults(event_item),
                         metadata={"event_name": event_name},
                     )
 
@@ -265,7 +265,7 @@ class UiPathOpenAIAgentRuntime:
         Returns:
             Dictionary representation of the message
         """
-        serialized = serialize_output(message)
+        serialized = serialize_defaults(message)
 
         # Ensure the result is a dictionary
         if isinstance(serialized, dict):
@@ -285,7 +285,7 @@ class UiPathOpenAIAgentRuntime:
             UiPathRuntimeResult with serialized output
         """
         # Serialize output
-        serialized_output = self._serialize_output(output)
+        serialized_output = serialize_defaults(output)
 
         # Ensure output is a dictionary
         if not isinstance(serialized_output, dict):
@@ -295,18 +295,6 @@ class UiPathOpenAIAgentRuntime:
             output=serialized_output,
             status=UiPathRuntimeStatus.SUCCESSFUL,
         )
-
-    def _serialize_output(self, output: Any) -> Any:
-        """
-        Serialize agent output to a JSON-compatible format.
-
-        Args:
-            output: Output from the agent
-
-        Returns:
-            JSON-compatible representation
-        """
-        return serialize_output(output)
 
     def _create_runtime_error(self, e: Exception) -> UiPathOpenAIAgentsRuntimeError:
         """

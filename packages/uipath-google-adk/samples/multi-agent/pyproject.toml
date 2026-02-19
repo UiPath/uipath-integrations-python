@@ -2,6 +2,7 @@
 name = "multi-agent"
 version = "0.0.1"
 description = "Google ADK multi-agent example with sub-agents and tools"
+authors = [{ name = "John Doe" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

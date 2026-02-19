@@ -2,11 +2,13 @@
 
 from unittest.mock import MagicMock
 
+import jsonschema  # type: ignore[import-untyped]
 import pytest
 from google.adk.agents import BaseAgent, LlmAgent
 from pydantic import BaseModel
 
 from uipath_google_adk.runtime.schema import (
+    _default_input_schema,
     get_agent_graph,
     get_entrypoints_schema,
     resolve_output_schema,
@@ -133,6 +135,94 @@ class TestGetEntrypointsSchema:
 
         assert "answer" in schema["output"]["properties"]
         assert "response" not in schema["output"]["properties"]
+
+
+class TestDefaultMessagesSchemaValidation:
+    """Tests that the default messages schema accepts minimal input."""
+
+    def test_minimal_message_with_inline_data(self):
+        """Minimal message: only role and contentParts with data.inline."""
+        schema = _default_input_schema()
+        data = {
+            "messages": [
+                {
+                    "role": "user",
+                    "contentParts": [
+                        {"data": {"inline": "What is the weather in San Francisco?"}}
+                    ],
+                }
+            ]
+        }
+        jsonschema.validate(data, schema)
+
+    def test_message_with_all_optional_fields(self):
+        """Message with all optional fields populated."""
+        schema = _default_input_schema()
+        data = {
+            "messages": [
+                {
+                    "role": "user",
+                    "contentParts": [
+                        {
+                            "mimeType": "text/plain",
+                            "data": {"inline": "Hello"},
+                            "citations": [],
+                        }
+                    ],
+                    "toolCalls": [],
+                    "interrupts": [],
+                }
+            ]
+        }
+        jsonschema.validate(data, schema)
+
+    def test_missing_role_fails(self):
+        """Message without role should fail validation."""
+        schema = _default_input_schema()
+        data = {
+            "messages": [
+                {
+                    "contentParts": [{"data": {"inline": "Hello"}}],
+                }
+            ]
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(data, schema)
+
+    def test_missing_content_parts_fails(self):
+        """Message without contentParts should fail validation."""
+        schema = _default_input_schema()
+        data = {"messages": [{"role": "user"}]}
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(data, schema)
+
+    def test_content_part_missing_data_fails(self):
+        """Content part without data should fail validation."""
+        schema = _default_input_schema()
+        data = {
+            "messages": [
+                {
+                    "role": "user",
+                    "contentParts": [{"mimeType": "text/plain"}],
+                }
+            ]
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(data, schema)
+
+    def test_data_missing_inline_fails(self):
+        """Data without inline should fail validation."""
+        schema = _default_input_schema()
+        data = {
+            "messages": [
+                {
+                    "role": "user",
+                    "contentParts": [{"data": {}}],
+                }
+            ]
+        }
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(data, schema)
 
 
 class TestResolveOutputSchema:

@@ -12,6 +12,7 @@ from llama_index.core.agent.workflow.workflow_events import (
     ToolCall,
     ToolCallResult,
 )
+from uipath.core.serialization import serialize_defaults
 from uipath.runtime import (
     UiPathExecuteOptions,
     UiPathRuntimeResult,
@@ -48,8 +49,6 @@ from uipath_llamaindex.runtime.errors import (
 )
 from uipath_llamaindex.runtime.schema import get_entrypoints_schema, get_workflow_schema
 from uipath_llamaindex.runtime.storage import SqliteResumableStorage
-
-from ._serialize import serialize_output
 
 
 class UiPathLlamaIndexRuntime:
@@ -179,14 +178,14 @@ class UiPathLlamaIndexRuntime:
                     (AgentOutput, AgentInput, AgentStream, ToolCall, ToolCallResult),
                 ):
                     message_event = UiPathRuntimeMessageEvent(
-                        payload=serialize_output(event),
+                        payload=serialize_defaults(event),
                         node_name=node_name,
                         execution_id=self.runtime_id,
                     )
                     yield message_event
                 elif not isinstance(event, BreakpointEvent):
                     state_event = UiPathRuntimeStateEvent(
-                        payload=serialize_output(event),
+                        payload=serialize_defaults(event),
                         node_name=node_name,
                         execution_id=self.runtime_id,
                     )
@@ -256,7 +255,7 @@ class UiPathLlamaIndexRuntime:
         return UiPathBreakpointResult(
             breakpoint_node=self._get_node_name(event),
             breakpoint_type="before",
-            current_state=serialize_output(event),
+            current_state=serialize_defaults(event),
             next_nodes=[],  # We don't know what's next in the stream
         )
 
@@ -285,11 +284,11 @@ class UiPathLlamaIndexRuntime:
         """Create result for successful completion."""
         if isinstance(output, AgentOutput):
             if output.structured_response is not None:
-                serialized_output = serialize_output(output.structured_response)
+                serialized_output = serialize_defaults(output.structured_response)
             else:
-                serialized_output = serialize_output(output)
+                serialized_output = serialize_defaults(output)
         else:
-            serialized_output = serialize_output(output)
+            serialized_output = serialize_defaults(output)
 
         if isinstance(serialized_output, str):
             serialized_output = {"result": serialized_output}

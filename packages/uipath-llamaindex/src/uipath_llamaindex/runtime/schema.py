@@ -13,6 +13,8 @@ from uipath.runtime.schema import (
     UiPathRuntimeEdge,
     UiPathRuntimeGraph,
     UiPathRuntimeNode,
+    transform_nullable_types,
+    transform_references,
 )
 from workflows import Workflow
 from workflows.decorators import StepConfig
@@ -60,8 +62,8 @@ def get_entrypoints_schema(workflow: Workflow) -> dict[str, Any]:
         else:
             input_schema = start_event_class.model_json_schema()
             # Resolve references and handle nullable types
-            unpacked_input = _resolve_refs(input_schema)
-            schema["input"]["properties"] = _process_nullable_types(
+            unpacked_input, _ = transform_references(input_schema)
+            schema["input"]["properties"] = transform_nullable_types(
                 unpacked_input.get("properties", {})
             )
             schema["input"]["required"] = unpacked_input.get("required", [])
@@ -75,8 +77,8 @@ def get_entrypoints_schema(workflow: Workflow) -> dict[str, Any]:
             try:
                 output_schema = output_cls.model_json_schema()
                 # Resolve references and handle nullable types
-                unpacked_output = _resolve_refs(output_schema)
-                schema["output"]["properties"] = _process_nullable_types(
+                unpacked_output, _ = transform_references(output_schema)
+                schema["output"]["properties"] = transform_nullable_types(
                     unpacked_output.get("properties", {})
                 )
                 schema["output"]["required"] = unpacked_output.get("required", [])
@@ -100,8 +102,8 @@ def get_entrypoints_schema(workflow: Workflow) -> dict[str, Any]:
         try:
             output_schema = stop_event_class.model_json_schema()
             # Resolve references and handle nullable types
-            unpacked_output = _resolve_refs(output_schema)
-            schema["output"]["properties"] = _process_nullable_types(
+            unpacked_output, _ = transform_references(output_schema)
+            schema["output"]["properties"] = transform_nullable_types(
                 unpacked_output.get("properties", {})
             )
             schema["output"]["required"] = unpacked_output.get("required", [])
@@ -303,92 +305,6 @@ def get_step_config(step_name: str, step_func: Any) -> StepConfig | None:
     return getattr(step_func, "_step_config", None) or getattr(
         step_func, "__step_config", None
     )
-
-
-def _resolve_refs(
-    schema: dict[str, Any],
-    root: dict[str, Any] | None = None,
-    visited: set[str] | None = None,
-) -> dict[str, Any]:
-    """
-    Recursively resolves $ref references in a JSON schema.
-
-    Args:
-        schema: The schema dictionary to resolve
-        root: The root schema for reference resolution
-        visited: Set of visited references to detect circular dependencies
-
-    Returns:
-        Resolved schema dictionary
-    """
-    if root is None:
-        root = schema
-
-    if visited is None:
-        visited = set()
-
-    if isinstance(schema, dict):
-        if "$ref" in schema:
-            ref_path = schema["$ref"]
-
-            if ref_path in visited:
-                # Circular dependency detected
-                return {
-                    "type": "object",
-                    "description": f"Circular reference to {ref_path}",
-                }
-
-            visited.add(ref_path)
-
-            # Resolve the reference - handle both #/definitions/ and #/$defs/ formats
-            ref_parts = ref_path.lstrip("#/").split("/")
-            ref_schema = root
-            for part in ref_parts:
-                ref_schema = ref_schema.get(part, {})
-
-            result = _resolve_refs(ref_schema, root, visited)
-
-            # Remove from visited after resolution
-            visited.discard(ref_path)
-
-            return result
-
-        return {k: _resolve_refs(v, root, visited) for k, v in schema.items()}
-
-    elif isinstance(schema, list):
-        return [_resolve_refs(item, root, visited) for item in schema]
-
-    return schema
-
-
-def _process_nullable_types(properties: dict[str, Any]) -> dict[str, Any]:
-    """
-    Process properties to handle nullable types correctly.
-
-    This matches the original implementation that adds "nullable": True
-    instead of simplifying the schema structure.
-
-    Args:
-        properties: The properties dictionary from a schema
-
-    Returns:
-        Processed properties with nullable types marked
-    """
-    result = {}
-    for name, prop in properties.items():
-        if "anyOf" in prop:
-            types = [item.get("type") for item in prop["anyOf"] if "type" in item]
-            if "null" in types:
-                non_null_types = [t for t in types if t != "null"]
-                if len(non_null_types) == 1:
-                    result[name] = {"type": non_null_types[0], "nullable": True}
-                else:
-                    result[name] = {"type": non_null_types, "nullable": True}
-            else:
-                result[name] = prop
-        else:
-            result[name] = prop
-    return result
 
 
 __all__ = [

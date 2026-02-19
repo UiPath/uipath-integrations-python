@@ -104,7 +104,6 @@ class TestInit:
 
                 assert "param" in props
                 assert props["param"]["type"] == "string"
-                assert props["param"]["nullable"]
 
                 # Verify required fields in input
                 assert input_schema["required"] == ["topic"]
@@ -126,7 +125,6 @@ class TestInit:
 
                 assert "param" in out_props
                 assert out_props["param"]["type"] == "string"
-                assert out_props["param"]["nullable"]
 
                 # Verify required fields in output
                 assert output_schema["required"] == ["joke", "critique"]

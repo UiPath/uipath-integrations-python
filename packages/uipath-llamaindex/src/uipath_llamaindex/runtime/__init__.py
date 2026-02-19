@@ -27,8 +27,6 @@ def register_runtime_factory() -> None:
     )
 
 
-register_runtime_factory()
-
 __all__ = [
     "register_runtime_factory",
     "get_entrypoints_schema",

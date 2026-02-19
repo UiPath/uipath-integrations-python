@@ -1,0 +1,22 @@
+from agent_framework.openai import OpenAIChatClient
+
+
+def get_weather(location: str) -> str:
+    """Get the current weather for a location.
+
+    Args:
+        location: The city and state, e.g. "San Francisco, CA"
+
+    Returns:
+        Weather information for the location
+    """
+    # This is a mock implementation
+    return f"The weather in {location} is sunny and 32 degrees Celsius."
+
+
+# Create an agent with tools
+agent = OpenAIChatClient(model_id="gpt-4o-mini").as_agent(
+    name="weather_agent",
+    instructions="You are a helpful weather assistant. Use the get_weather tool to provide weather information.",
+    tools=[get_weather],
+)

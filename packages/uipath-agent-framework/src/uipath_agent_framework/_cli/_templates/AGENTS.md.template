@@ -1,0 +1,21 @@
+# Agent Framework Agent
+
+This project uses the Microsoft Agent Framework to build AI agents.
+
+## Getting Started
+
+1. Install dependencies: `uipath init`
+2. Run the agent: `uipath run agent '{"messages": "Hello!"}'`
+3. Stream events: `uipath run agent '{"messages": "Hello!"}' --stream`
+
+## Configuration
+
+Edit `agent_framework.json` to configure your agents:
+
+```json
+{
+  "agents": {
+    "agent": "main.py:agent"
+  }
+}
+```

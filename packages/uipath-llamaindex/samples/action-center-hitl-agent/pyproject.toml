@@ -5,11 +5,11 @@ description = "UiPath LlamaIndex Action Center HITL Agent"
 authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
 requires-python = ">=3.11"
 dependencies = [
-    "uipath-llamaindex>=0.1.0, <0.2.0",
+    "uipath-llamaindex",
     "llama-index-llms-openai>=0.6.10"
 ]
 
 [dependency-groups]
 dev = [
-    "uipath-dev>=0.0.8",
+    "uipath-dev",
 ]

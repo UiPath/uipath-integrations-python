@@ -177,7 +177,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.81.0"
+version = "0.82.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -189,9 +189,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/c2/d2bb9b3c82c386abf3b2c32ae0452a8dcb89ed2809d875e1420bea22e318/anthropic-0.81.0.tar.gz", hash = "sha256:bab2d4e45c2e81a0668fdc2da2f7fd665ed8a0295ba3c86450f9dcc3a7804524", size = 532935, upload-time = "2026-02-18T04:00:54.658Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/94/3766b5414d9e35687d518943a5b2ffb2696cd5c53248eec13fa1e8a5c73d/anthropic-0.82.0.tar.gz", hash = "sha256:e217340ba40cb9e24c88aacccc365334a6c3f46778855eca5000a6aa83d73dde", size = 533270, upload-time = "2026-02-18T20:25:16.844Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/27/a18e1613da66b3c9c7565c92457a60de15e824a6dd2ed9bce0fbfe615ded/anthropic-0.81.0-py3-none-any.whl", hash = "sha256:ac54407e9a1f9b35e6e6c86f75bf403f0e54d60944f99f15f685a38d6829f20b", size = 455627, upload-time = "2026-02-18T04:00:53.207Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/49/b570250e36471effbc146d22ffb111e775f11ff2d8b503b32526f25a8f23/anthropic-0.82.0-py3-none-any.whl", hash = "sha256:2525828b6798635a7a691c4c62d49bd10bbd288ab83fa4ba55851264dfa5377d", size = 456304, upload-time = "2026-02-18T20:25:18.788Z" },
 ]
 
 [[package]]
@@ -645,11 +645,11 @@ wheels = [
 
 [[package]]
 name = "filelock"
-version = "3.24.2"
+version = "3.24.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/02/a8/dae62680be63cbb3ff87cfa2f51cf766269514ea5488479d42fec5aa6f3a/filelock-3.24.2.tar.gz", hash = "sha256:c22803117490f156e59fafce621f0550a7a853e2bbf4f87f112b11d469b6c81b", size = 37601, upload-time = "2026-02-16T02:50:45.614Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/73/92/a8e2479937ff39185d20dd6a851c1a63e55849e447a55e798cc2e1f49c65/filelock-3.24.3.tar.gz", hash = "sha256:011a5644dc937c22699943ebbfc46e969cdde3e171470a6e40b9533e5a72affa", size = 37935, upload-time = "2026-02-19T00:48:20.543Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e7/04/a94ebfb4eaaa08db56725a40de2887e95de4e8641b9e902c311bfa00aa39/filelock-3.24.2-py3-none-any.whl", hash = "sha256:667d7dc0b7d1e1064dd5f8f8e80bdac157a6482e8d2e02cd16fd3b6b33bd6556", size = 24152, upload-time = "2026-02-16T02:50:44Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/0f/5d0c71a1aefeb08efff26272149e07ab922b64f46c63363756224bd6872e/filelock-3.24.3-py3-none-any.whl", hash = "sha256:426e9a4660391f7f8a810d71b0555bce9008b0a1cc342ab1f6947d37639e002d", size = 24331, upload-time = "2026-02-19T00:48:18.465Z" },
 ]
 
 [[package]]
@@ -759,7 +759,7 @@ wheels = [
 
 [[package]]
 name = "google-adk"
-version = "1.25.0"
+version = "1.25.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -807,14 +807,14 @@ dependencies = [
     { name = "watchdog" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/7f/413a6c4daacaf9d7d1415ab83e6be11ed967d8a61238b5ba4271c1d0ab95/google_adk-1.25.0.tar.gz", hash = "sha256:3ec69d0b3071759395cc6c4f5347d6da662aff0727235b2048f6313932d678cf", size = 2220229, upload-time = "2026-02-11T23:22:51.645Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/e2/9c755a7088128cc7e2dbae99d0c512d71fc6504ed128eb489b516b7e47c4/google_adk-1.25.1.tar.gz", hash = "sha256:5f3771d9f704f04c4a6996a3d0c33fc6890641047d3f5a6128cc9b2a83b3326b", size = 2218119, upload-time = "2026-02-18T21:43:19.039Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/92/069cfb99d0dde5c5dfb9f7fd2a6fe3bbe0ab988e53f0e738f3aac0333f88/google_adk-1.25.0-py3-none-any.whl", hash = "sha256:2a07ff626e7d2a575a288d58ec6eb10e02cd2203f8d63c7a7698b9af64d73d12", size = 2578255, upload-time = "2026-02-11T23:22:49.862Z" },
+    { url = "https://files.pythonhosted.org/packages/50/09/e7ed67abe7e928309799b4c4789b2a3b5eba4ac0eb6d4c7912f9e3e9823d/google_adk-1.25.1-py3-none-any.whl", hash = "sha256:62907f54b918a56450fc81669471f5819f41a48548ada3a521ac85728ca29001", size = 2579485, upload-time = "2026-02-18T21:43:20.839Z" },
 ]
 
 [[package]]
 name = "google-api-core"
-version = "2.29.0"
+version = "2.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
@@ -823,9 +823,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0d/10/05572d33273292bac49c2d1785925f7bc3ff2fe50e3044cf1062c1dde32e/google_api_core-2.29.0.tar.gz", hash = "sha256:84181be0f8e6b04006df75ddfe728f24489f0af57c96a529ff7cf45bc28797f7", size = 177828, upload-time = "2026-01-08T22:21:39.269Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/98/586ec94553b569080caef635f98a3723db36a38eac0e3d7eb3ea9d2e4b9a/google_api_core-2.30.0.tar.gz", hash = "sha256:02edfa9fab31e17fc0befb5f161b3bf93c9096d99aed584625f38065c511ad9b", size = 176959, upload-time = "2026-02-18T20:28:11.926Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/b6/85c4d21067220b9a78cfb81f516f9725ea6befc1544ec9bd2c1acd97c324/google_api_core-2.29.0-py3-none-any.whl", hash = "sha256:d30bc60980daa36e314b5d5a3e5958b0200cb44ca8fa1be2b614e932b75a3ea9", size = 173906, upload-time = "2026-01-08T22:21:36.093Z" },
+    { url = "https://files.pythonhosted.org/packages/45/27/09c33d67f7e0dcf06d7ac17d196594e66989299374bfb0d4331d1038e76b/google_api_core-2.30.0-py3-none-any.whl", hash = "sha256:80be49ee937ff9aba0fd79a6eddfde35fe658b9953ab9b79c57dd7061afa8df5", size = 173288, upload-time = "2026-02-18T20:28:10.367Z" },
 ]
 
 [package.optional-dependencies]
@@ -1244,9 +1244,10 @@ wheels = [
 
 [[package]]
 name = "google-genai"
-version = "1.63.0"
+version = "1.64.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "aiohttp" },
     { name = "anyio" },
     { name = "distro" },
     { name = "google-auth", extra = ["requests"] },
@@ -1258,9 +1259,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/d7/07ec5dadd0741f09e89f3ff5f0ce051ce2aa3a76797699d661dc88def077/google_genai-1.63.0.tar.gz", hash = "sha256:dc76cab810932df33cbec6c7ef3ce1538db5bef27aaf78df62ac38666c476294", size = 491970, upload-time = "2026-02-11T23:46:28.472Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/14/344b450d4387845fc5c8b7f168ffbe734b831b729ece3333fc0fe8556f04/google_genai-1.64.0.tar.gz", hash = "sha256:8db94ab031f745d08c45c69674d1892f7447c74ed21542abe599f7888e28b924", size = 496434, upload-time = "2026-02-19T02:06:13.95Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/c8/ba32159e553fab787708c612cf0c3a899dafe7aca81115d841766e3bfe69/google_genai-1.63.0-py3-none-any.whl", hash = "sha256:6206c13fc20f332703ca7375bea7c191c82f95d6781c29936c6982d86599b359", size = 724747, upload-time = "2026-02-11T23:46:26.697Z" },
+    { url = "https://files.pythonhosted.org/packages/54/56/765eca90c781fedbe2a7e7dc873ef6045048e28ba5f2d4a5bcb13e13062b/google_genai-1.64.0-py3-none-any.whl", hash = "sha256:78a4d2deeb33b15ad78eaa419f6f431755e7f0e03771254f8000d70f717e940b", size = 728836, upload-time = "2026-02-19T02:06:11.655Z" },
 ]
 
 [[package]]
@@ -3555,7 +3556,7 @@ wheels = [
 
 [[package]]
 name = "uipath"
-version = "2.8.39"
+version = "2.8.41"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "applicationinsights" },
@@ -3577,28 +3578,28 @@ dependencies = [
     { name = "uipath-core" },
     { name = "uipath-runtime" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bd/76/ebf085b05e87db8fa55d07f325208c1ef70e3a23184e60132617990412c4/uipath-2.8.39.tar.gz", hash = "sha256:5dc9b2801cae4a1fe30809c1379c9adb13f49ce5d892e8d948900f8a24bb3580", size = 4365544, upload-time = "2026-02-17T15:11:44.036Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/70/bc/a14486bd49814f99c7c96ff484a8c0ad686360db456e713e002384c89463/uipath-2.8.41.tar.gz", hash = "sha256:4f2cbd3ab4f61a429bebaa84e63eeb67411a7b5bc0bdd3e75aaed1ca283adc4a", size = 4580851, upload-time = "2026-02-18T22:29:47.725Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/85/290786a30b0b8869be38dea2098f78d4d9ab308623acce7b9fa923a95701/uipath-2.8.39-py3-none-any.whl", hash = "sha256:adeb3bad743bd303840c338b33b777c705cbb57bf619957d927c0e91e462eae4", size = 482803, upload-time = "2026-02-17T15:11:42.425Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/53/81e0e57b95c6899b078c6a46445103b08368cb42a8a3fa1c2d8775dd760a/uipath-2.8.41-py3-none-any.whl", hash = "sha256:409b33bbc433997957aa92b03e3e4f7dc11d400a9da115edd0a40ac9bd6a5249", size = 484513, upload-time = "2026-02-18T22:29:46.055Z" },
 ]
 
 [[package]]
 name = "uipath-core"
-version = "0.4.1"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-instrumentation" },
     { name = "opentelemetry-sdk" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8b/9a/c343d4a3716b962b588f0297e458b8e61126104167f6c86583571aa7d53f/uipath_core-0.4.1.tar.gz", hash = "sha256:f4a3213ade5e1badefef99fdf80b2318a33ae9b495723962fb937160703a6e79", size = 111183, upload-time = "2026-02-16T11:53:38.857Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/c2/afdf9b6500e5a026c4921dfce2c6f5c586b0114c9d006fd02b31a252c238/uipath_core-0.5.0.tar.gz", hash = "sha256:8035335a1b548475cca7dc99621be644fe0b63f8791c0f01fbb911295cefb143", size = 116691, upload-time = "2026-02-18T21:04:32.815Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/b6/703a9b715fa6adb84840ade9ecb49123fc600046c6caa7acfa4abe7682cc/uipath_core-0.4.1-py3-none-any.whl", hash = "sha256:140af50ce0c2a54124dee63c1798d2f729dbc002f739e91190588b10a13a53fd", size = 35559, upload-time = "2026-02-16T11:53:37.666Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/b2/fa4b2c77f9fe8c794e1d47083654a32b9e0843e4e353f0df5650b719d189/uipath_core-0.5.0-py3-none-any.whl", hash = "sha256:ae8eb511a8228bdf0b42561eae772404e05431623c1be3cade16d5639fca9cac", size = 39403, upload-time = "2026-02-18T21:04:30.987Z" },
 ]
 
 [[package]]
 name = "uipath-google-adk"
-version = "0.0.3"
+version = "0.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "google-adk" },
@@ -3626,34 +3627,34 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.43.0" },
-    { name = "google-adk", specifier = ">=1.25.0" },
-    { name = "openinference-instrumentation-google-adk", specifier = ">=0.1.0" },
-    { name = "uipath", specifier = ">=2.8.18,<2.9.0" },
-    { name = "uipath-runtime", specifier = ">=0.8.0,<0.9.0" },
+    { name = "google-adk", specifier = ">=1.25.1" },
+    { name = "openinference-instrumentation-google-adk", specifier = ">=0.1.9" },
+    { name = "uipath", specifier = ">=2.8.41,<2.9.0" },
+    { name = "uipath-runtime", specifier = ">=0.9.0,<0.10.0" },
 ]
 provides-extras = ["anthropic"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "mypy", specifier = ">=1.14.1" },
-    { name = "pre-commit", specifier = ">=4.1.0" },
-    { name = "pytest", specifier = ">=7.4.0" },
-    { name = "pytest-asyncio", specifier = ">=1.0.0" },
-    { name = "pytest-cov", specifier = ">=4.1.0" },
-    { name = "pytest-mock", specifier = ">=3.11.1" },
-    { name = "ruff", specifier = ">=0.9.4" },
+    { name = "mypy", specifier = ">=1.19.1" },
+    { name = "pre-commit", specifier = ">=4.5.1" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+    { name = "pytest-mock", specifier = ">=3.15.1" },
+    { name = "ruff", specifier = ">=0.15.1" },
 ]
 
 [[package]]
 name = "uipath-runtime"
-version = "0.8.6"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "uipath-core" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/94/d3/b31a7ab49326a5f5174b971426c136da369277c860e548a170aa44cdae7c/uipath_runtime-0.8.6.tar.gz", hash = "sha256:24f9e6238528d29bb2355945191b48bed5d203f717bd29b4e775687d97b14ed8", size = 109413, upload-time = "2026-02-16T13:19:54.202Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/ce/82c4edfe6fa11807ea99babf7a53afbced4d3a17b3e020dfa6474ee4d73f/uipath_runtime-0.9.0.tar.gz", hash = "sha256:bc24f6f96fe0ad1d8549b16df51607d4e85558afe04abee294c9dff9790ccc96", size = 109587, upload-time = "2026-02-18T22:04:43.65Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/eb/7027c8bc302da693aa350c67b3f6d0848e1e46958d8d5e0f95f3ee266fe7/uipath_runtime-0.8.6-py3-none-any.whl", hash = "sha256:efd1ce5b778994410e3f24b3c8b16af1787b00a5ea8fb8f4a6a9eaea0c6fe202", size = 41773, upload-time = "2026-02-16T13:19:52.408Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/e7/c8d0bd9316f4a528e36c52971df4dc01f96fbaf716dd62921253c69ab159/uipath_runtime-0.9.0-py3-none-any.whl", hash = "sha256:803010831cdead1d2563eed39025bb555be01626677bb23eecc918981cf93941", size = 41865, upload-time = "2026-02-18T22:04:42.03Z" },
 ]
 
 [[package]]
@@ -3689,16 +3690,16 @@ wheels = [
 
 [[package]]
 name = "virtualenv"
-version = "20.37.0"
+version = "20.36.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "distlib" },
     { name = "filelock" },
     { name = "platformdirs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c1/ef/d9d4ce633df789bf3430bd81fb0d8b9d9465dfc1d1f0deb3fb62cd80f5c2/virtualenv-20.37.0.tar.gz", hash = "sha256:6f7e2064ed470aa7418874e70b6369d53b66bcd9e9fd5389763e96b6c94ccb7c", size = 5864710, upload-time = "2026-02-16T16:17:59.42Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/a3/4d310fa5f00863544e1d0f4de93bddec248499ccf97d4791bc3122c9d4f3/virtualenv-20.36.1.tar.gz", hash = "sha256:8befb5c81842c641f8ee658481e42641c68b5eab3521d8e092d18320902466ba", size = 6032239, upload-time = "2026-01-09T18:21:01.296Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/4b/6cf85b485be7ec29db837ec2a1d8cd68bc1147b1abf23d8636c5bd65b3cc/virtualenv-20.37.0-py3-none-any.whl", hash = "sha256:5d3951c32d57232ae3569d4de4cc256c439e045135ebf43518131175d9be435d", size = 5837480, upload-time = "2026-02-16T16:17:57.341Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/2a/dc2228b2888f51192c7dc766106cd475f1b768c10caaf9727659726f7391/virtualenv-20.36.1-py3-none-any.whl", hash = "sha256:575a8d6b124ef88f6f51d56d656132389f961062a9177016a50e4f507bbcc19f", size = 6008258, upload-time = "2026-01-09T18:20:59.425Z" },
 ]
 
 [[package]]

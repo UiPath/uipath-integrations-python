@@ -11,7 +11,7 @@ def _make_agent(name="test_agent", tools=None) -> BaseAgent:
     """Create a mock BaseAgent for testing."""
     agent = MagicMock(spec=BaseAgent)
     agent.name = name
-    agent.tools = tools or []
+    agent.default_options = {"tools": tools or []}
     return agent
 
 
@@ -37,7 +37,10 @@ class TestGraphStructure:
 
     def test_tools_node_type_is_tool(self):
         """Tools nodes have type 'tool'."""
-        def search(): pass
+
+        def search():
+            pass
+
         search.__name__ = "search"
         tool = search
 
@@ -52,9 +55,7 @@ class TestGraphStructure:
         agent = _make_agent(name="my_agent")
         graph = get_agent_graph(agent)
 
-        start_edge = next(
-            e for e in graph.edges if e.source == "__start__"
-        )
+        start_edge = next(e for e in graph.edges if e.source == "__start__")
         assert start_edge.target == "my_agent"
         assert start_edge.label == "input"
 
@@ -63,17 +64,21 @@ class TestGraphStructure:
         agent = _make_agent(name="my_agent")
         graph = get_agent_graph(agent)
 
-        end_edge = next(
-            e for e in graph.edges if e.target == "__end__"
-        )
+        end_edge = next(e for e in graph.edges if e.target == "__end__")
         assert end_edge.source == "my_agent"
         assert end_edge.label == "output"
 
     def test_tools_metadata_contains_names(self):
         """Tools node metadata includes tool names and count."""
-        def search(): pass
+
+        def search():
+            pass
+
         search.__name__ = "search"
-        def calculator(): pass
+
+        def calculator():
+            pass
+
         calculator.__name__ = "calculator"
         tool1 = search
         tool2 = calculator
@@ -82,6 +87,7 @@ class TestGraphStructure:
         graph = get_agent_graph(agent)
 
         tools_node = next(n for n in graph.nodes if n.id == "agent_tools")
+        assert tools_node.metadata is not None
         assert tools_node.metadata["tool_names"] == ["search", "calculator"]
         assert tools_node.metadata["tool_count"] == 2
 
@@ -89,7 +95,7 @@ class TestGraphStructure:
         """Agent without name falls back to 'agent'."""
         agent = MagicMock(spec=BaseAgent)
         agent.name = None
-        agent.tools = []
+        agent.default_options = {"tools": []}
 
         graph = get_agent_graph(agent)
         node_ids = [n.id for n in graph.nodes]

@@ -56,9 +56,7 @@ class UiPathAgentFrameworkRuntimeFactory:
         # Add OpenInference span processor for Arize Phoenix compatibility
         tracer_provider = trace.get_tracer_provider()
         if isinstance(tracer_provider, TracerProvider):
-            tracer_provider.add_span_processor(
-                AgentFrameworkToOpenInferenceProcessor()
-            )
+            tracer_provider.add_span_processor(AgentFrameworkToOpenInferenceProcessor())
 
     def _load_config(self) -> AgentFrameworkConfig:
         """Load agent_framework.json configuration."""

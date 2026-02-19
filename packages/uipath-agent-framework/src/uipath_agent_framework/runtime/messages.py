@@ -64,8 +64,7 @@ class AgentFrameworkChatMessagesMapper:
             if isinstance(first, dict):
                 try:
                     parsed = [
-                        UiPathConversationMessage.model_validate(m)
-                        for m in messages
+                        UiPathConversationMessage.model_validate(m) for m in messages
                     ]
                     return self._extract_text_from_uipath_messages(parsed)
                 except ValidationError:
@@ -138,19 +137,23 @@ class AgentFrameworkChatMessagesMapper:
         events: list[UiPathConversationMessageEvent] = []
 
         if content.type == "function_call":
+            # During streaming, only the first chunk carries content.name.
+            # Subsequent chunks are partial argument fragments — skip them.
+            if not content.name:
+                return events
+
+            tool_call_id = content.call_id or f"{content.name}_{uuid4().hex[:8]}"
+
             events.extend(self._ensure_message_started())
-            tool_call_id = (
-                content.call_id
-                or f"{content.name or 'unknown'}_{uuid4().hex[:8]}"
-            )
             if self._current_message_id:
                 self._pending_tool_calls[tool_call_id] = self._current_message_id
+            args = content.arguments if isinstance(content.arguments, dict) else None
             events.append(
                 self._make_tool_call_start_event(
                     self._current_message_id or "",
                     tool_call_id,
-                    content.name or "unknown",
-                    content.arguments,
+                    content.name,
+                    args,
                 )
             )
             return events
@@ -160,10 +163,12 @@ class AgentFrameworkChatMessagesMapper:
                 message_id = self._pending_tool_calls.pop(content.call_id)
                 result = content.result or {}
                 events.append(
-                    self._make_tool_call_end_event(
-                        message_id, content.call_id, result
-                    )
+                    self._make_tool_call_end_event(message_id, content.call_id, result)
                 )
+            # Close the current message after all tool calls complete
+            # so that the agent's text response starts a new message.
+            if not self._pending_tool_calls:
+                events.extend(self.close_message())
             return events
 
         # Text content
@@ -192,8 +197,6 @@ class AgentFrameworkChatMessagesMapper:
         if content.text:
             return str(content.text)
         return ""
-
-    # -- Helpers --
 
     def _ensure_message_started(self) -> list[UiPathConversationMessageEvent]:
         """Start a new message if not already started."""
@@ -279,9 +282,7 @@ class AgentFrameworkChatMessagesMapper:
         )
 
     @classmethod
-    def _make_message_end_event(
-        cls, message_id: str
-    ) -> UiPathConversationMessageEvent:
+    def _make_message_end_event(cls, message_id: str) -> UiPathConversationMessageEvent:
         return UiPathConversationMessageEvent(
             message_id=message_id,
             end=UiPathConversationMessageEndEvent(),

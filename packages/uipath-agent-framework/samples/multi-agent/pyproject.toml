@@ -1,7 +1,7 @@
 [project]
-name = "quickstart-agent"
+name = "multi-agent"
 version = "0.0.1"
-description = "Quickstart Agent Framework agent example"
+description = "Multi-agent Agent Framework example with coordinator pattern"
 authors = [{ name = "John Doe" }]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -9,6 +9,7 @@ dependencies = [
     "uipath",
     "uipath-agent-framework",
     "agent-framework-core>=1.0.0b260212",
+    "httpx>=0.27.0",
 ]
 
 [dependency-groups]
@@ -18,7 +19,3 @@ dev = [
 
 [tool.uv]
 prerelease = "allow"
-
-[tool.uv.sources]
-uipath-dev = { path = "../../../../../uipath-dev-python", editable = true }
-uipath-agent-framework = { path = "../../", editable = true }

@@ -21,6 +21,9 @@ maintainers = [
     { name = "Cristian Pufu", email = "cristian.pufu@uipath.com" }
 ]
 
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.43.0"]
+
 [project.entry-points."uipath.middlewares"]
 register = "uipath_agent_framework.middlewares:register_middleware"
 
@@ -85,6 +88,11 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "openinference.*"
+ignore_missing_imports = true
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "agent_framework_anthropic.*"
 ignore_missing_imports = true
 ignore_errors = true
 

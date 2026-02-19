@@ -1,5 +1,6 @@
 import httpx
-from agent_framework.openai import OpenAIChatClient
+
+from uipath_agent_framework.chat import UiPathOpenAIChatClient
 
 
 def get_weather(location: str) -> str:
@@ -53,7 +54,8 @@ def get_weather(location: str) -> str:
         return f"Weather fetch failed: {e}"
 
 
-agent = OpenAIChatClient(model_id="gpt-4o-mini").as_agent(
+client = UiPathOpenAIChatClient(model="gpt-5-mini-2025-08-07")
+agent = client.as_agent(
     name="weather_agent",
     instructions="You are a helpful weather assistant. Use the get_weather tool to provide weather information.",
     tools=[get_weather],

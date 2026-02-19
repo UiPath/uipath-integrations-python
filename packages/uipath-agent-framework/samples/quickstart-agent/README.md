@@ -16,6 +16,14 @@ flowchart TB
   weather_agent --> |output|__end__
 ```
 
+## Prerequisites
+
+Authenticate with UiPath to configure your `.env` file:
+
+```bash
+uipath auth
+```
+
 ## Run
 
 ```

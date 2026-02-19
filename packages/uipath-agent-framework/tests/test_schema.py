@@ -14,7 +14,7 @@ def _make_agent(name="test_agent", tools=None) -> BaseAgent:
     """Create a mock BaseAgent for testing."""
     agent = MagicMock(spec=BaseAgent)
     agent.name = name
-    agent.tools = tools or []
+    agent.default_options = {"tools": tools or []}
     return agent
 
 
@@ -98,10 +98,15 @@ class TestGetAgentGraph:
 
     def test_agent_with_tools(self):
         """Test graph for agent with regular tools."""
-        def search(): pass
+
+        def search():
+            pass
+
         search.__name__ = "search"
 
-        def calculator(): pass
+        def calculator():
+            pass
+
         calculator.__name__ = "calculator"
 
         tool1 = search
@@ -131,7 +136,10 @@ class TestGetAgentGraph:
 
     def test_graph_edges_are_bidirectional_for_tools(self):
         """Tools node has bidirectional edges with agent."""
-        def my_tool(): pass
+
+        def my_tool():
+            pass
+
         my_tool.__name__ = "my_tool"
         tool = my_tool
 
@@ -150,7 +158,10 @@ class TestGetAgentGraph:
 
     def test_graph_has_correct_node_count_with_tools(self):
         """Graph with tools has 4 nodes: __start__, agent, tools, __end__."""
-        def my_tool(): pass
+
+        def my_tool():
+            pass
+
         my_tool.__name__ = "my_tool"
         tool = my_tool
 

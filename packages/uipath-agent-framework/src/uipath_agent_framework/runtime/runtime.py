@@ -5,7 +5,13 @@ import logging
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
-from agent_framework import AgentResponse, AgentResponseUpdate, BaseAgent, Content
+from agent_framework import (
+    AgentResponse,
+    AgentResponseUpdate,
+    BaseAgent,
+    Content,
+    FunctionTool,
+)
 from uipath.core.serialization import serialize_defaults
 from uipath.runtime import (
     UiPathExecuteOptions,
@@ -24,7 +30,12 @@ from uipath.runtime.schema import UiPathRuntimeSchema
 
 from .errors import UiPathAgentFrameworkErrorCode, UiPathAgentFrameworkRuntimeError
 from .messages import AgentFrameworkChatMessagesMapper
-from .schema import get_agent_graph, get_entrypoints_schema
+from .schema import (
+    extract_agent_from_tool,
+    get_agent_graph,
+    get_agent_tools,
+    get_entrypoints_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +54,36 @@ class UiPathAgentFrameworkRuntime:
         self.entrypoint: str | None = entrypoint
         self.chat = AgentFrameworkChatMessagesMapper()
 
+    @staticmethod
+    def _build_agent_tool_names(agent: BaseAgent) -> set[str]:
+        """Build a set of tool names that correspond to agent-as-tools.
+
+        Inspects the agent's tools list and identifies which ones wrap sub-agents
+        (created via BaseAgent.as_tool()). Returns the tool names (not agent names)
+        so we can match them against function_call content.name during streaming.
+        """
+        agent_tool_names: set[str] = set()
+        for tool in get_agent_tools(agent):
+            inner_agent = extract_agent_from_tool(tool)
+            if inner_agent is not None and isinstance(tool, FunctionTool):
+                agent_tool_names.add(tool.name)
+        return agent_tool_names
+
+    @staticmethod
+    def _build_tool_name_to_agent(agent: BaseAgent) -> dict[str, str]:
+        """Build a mapping from tool name to sub-agent node name.
+
+        When a function_call uses a tool name that wraps a sub-agent, we need
+        to know which agent node to emit STARTED/COMPLETED for.
+        """
+        mapping: dict[str, str] = {}
+        for tool in get_agent_tools(agent):
+            inner_agent = extract_agent_from_tool(tool)
+            if inner_agent is not None and isinstance(tool, FunctionTool):
+                agent_name = inner_agent.name or "agent"
+                mapping[tool.name] = agent_name
+        return mapping
+
     async def execute(
         self,
         input: dict[str, Any] | None = None,
@@ -51,7 +92,7 @@ class UiPathAgentFrameworkRuntime:
         """Execute the agent with the provided input and return the result."""
         try:
             user_input = self._prepare_input(input)
-            response = await self.agent.run(user_input)
+            response = await self.agent.run(user_input)  # type: ignore[attr-defined]
             output = self._extract_output(response)
             return self._create_success_result(output)
         except Exception as e:
@@ -62,10 +103,23 @@ class UiPathAgentFrameworkRuntime:
         input: dict[str, Any] | None = None,
         options: UiPathStreamOptions | None = None,
     ) -> AsyncGenerator[UiPathRuntimeEvent, None]:
-        """Stream agent execution events in real-time."""
+        """Stream agent execution events in real-time.
+
+        Emits lifecycle phase events (STARTED/COMPLETED) to drive the
+        uipath-dev graph visualization. Tracks the currently active
+        agent/tools nodes and emits proper STARTED/COMPLETED transitions
+        when execution moves between agents and tools.
+
+        For multi-agent setups (via as_tool()), sub-agents get their own
+        STARTED/COMPLETED events with node IDs matching the graph schema.
+        """
         try:
             user_input = self._prepare_input(input)
             agent_name = self.agent.name or "agent"
+
+            # Pre-compute which tool names correspond to sub-agents
+            agent_tool_names = self._build_agent_tool_names(self.agent)
+            tool_name_to_agent = self._build_tool_name_to_agent(self.agent)
 
             # Emit root agent started
             yield UiPathRuntimeStateEvent(
@@ -74,10 +128,11 @@ class UiPathAgentFrameworkRuntime:
                 phase=UiPathRuntimeStatePhase.STARTED,
             )
 
+            active_agent: str | None = agent_name
             active_tools: str | None = None
             final_text = ""
 
-            response_stream = self.agent.run(user_input, stream=True)
+            response_stream = self.agent.run(user_input, stream=True)  # type: ignore[attr-defined]
             async for update in response_stream:
                 if not isinstance(update, AgentResponseUpdate):
                     continue
@@ -88,39 +143,112 @@ class UiPathAgentFrameworkRuntime:
                     if not isinstance(content, Content):
                         continue
 
-                    # Track tool node state transitions
+                    # Track tool/agent node state transitions
                     if content.type == "function_call":
-                        tools_node = f"{agent_name}_tools"
-                        if active_tools != tools_node:
+                        # During streaming, only the first chunk carries
+                        # content.name. Subsequent chunks are partial
+                        # argument fragments — skip them.
+                        if not content.name:
+                            continue
+
+                        call_name = content.name
+                        logger.debug(
+                            "function_call: name=%s, call_id=%s, "
+                            "is_agent_tool=%s, active_agent=%s",
+                            call_name,
+                            content.call_id,
+                            call_name in agent_tool_names,
+                            active_agent,
+                        )
+
+                        if call_name in agent_tool_names:
+                            # This is a call to a sub-agent tool
+                            sub_agent_name = tool_name_to_agent.get(
+                                call_name, call_name
+                            )
+
+                            # Close any active tools node first
                             if active_tools:
                                 yield UiPathRuntimeStateEvent(
                                     payload={},
                                     node_name=active_tools,
                                     phase=UiPathRuntimeStatePhase.COMPLETED,
                                 )
-                            active_tools = tools_node
+                                active_tools = None
+
+                            # Emit STARTED for the sub-agent node
                             yield UiPathRuntimeStateEvent(
                                 payload={},
-                                node_name=tools_node,
+                                node_name=sub_agent_name,
                                 phase=UiPathRuntimeStatePhase.STARTED,
                             )
+                            active_agent = sub_agent_name
 
-                        # Emit state event for the tool call
-                        payload = {
-                            "function_name": content.name or "unknown",
-                        }
-                        if content.arguments:
-                            payload["function_args"] = serialize_defaults(
-                                content.arguments
+                            # Emit state event for the agent tool call
+                            payload: dict[str, Any] = {
+                                "function_name": call_name,
+                            }
+                            if isinstance(content.arguments, dict):
+                                payload["function_args"] = serialize_defaults(
+                                    content.arguments
+                                )
+                            yield UiPathRuntimeStateEvent(
+                                payload=payload,
+                                node_name=sub_agent_name,
+                                metadata={"event_type": "function_call"},
                             )
-                        yield UiPathRuntimeStateEvent(
-                            payload=payload,
-                            node_name=tools_node,
-                            metadata={"event_type": "function_call"},
-                        )
+                        else:
+                            # Regular tool call
+                            tools_node = f"{active_agent}_tools"
+                            if active_tools != tools_node:
+                                if active_tools:
+                                    yield UiPathRuntimeStateEvent(
+                                        payload={},
+                                        node_name=active_tools,
+                                        phase=UiPathRuntimeStatePhase.COMPLETED,
+                                    )
+                                active_tools = tools_node
+                                yield UiPathRuntimeStateEvent(
+                                    payload={},
+                                    node_name=tools_node,
+                                    phase=UiPathRuntimeStatePhase.STARTED,
+                                )
+
+                            # Emit state event for the tool call
+                            payload = {
+                                "function_name": call_name,
+                            }
+                            if isinstance(content.arguments, dict):
+                                payload["function_args"] = serialize_defaults(
+                                    content.arguments
+                                )
+                            yield UiPathRuntimeStateEvent(
+                                payload=payload,
+                                node_name=tools_node,
+                                metadata={"event_type": "function_call"},
+                            )
 
                     elif content.type == "function_result":
-                        if active_tools:
+                        result_name = content.name or ""
+
+                        if result_name in agent_tool_names:
+                            # Sub-agent completed — emit COMPLETED, re-START parent
+                            sub_agent_name = tool_name_to_agent.get(
+                                result_name, result_name
+                            )
+                            yield UiPathRuntimeStateEvent(
+                                payload={},
+                                node_name=sub_agent_name,
+                                phase=UiPathRuntimeStatePhase.COMPLETED,
+                            )
+                            active_agent = agent_name
+                            yield UiPathRuntimeStateEvent(
+                                payload={},
+                                node_name=agent_name,
+                                phase=UiPathRuntimeStatePhase.STARTED,
+                            )
+                        elif active_tools:
+                            # Regular tool completed
                             yield UiPathRuntimeStateEvent(
                                 payload={},
                                 node_name=active_tools,
@@ -128,11 +256,12 @@ class UiPathAgentFrameworkRuntime:
                             )
                             active_tools = None
                             # Re-start agent node after tool completion
-                            yield UiPathRuntimeStateEvent(
-                                payload={},
-                                node_name=agent_name,
-                                phase=UiPathRuntimeStatePhase.STARTED,
-                            )
+                            if active_agent:
+                                yield UiPathRuntimeStateEvent(
+                                    payload={},
+                                    node_name=active_agent,
+                                    phase=UiPathRuntimeStatePhase.STARTED,
+                                )
 
                     # Yield conversation message events
                     for msg_event in self.chat.map_streaming_content(content):
@@ -205,9 +334,7 @@ class UiPathAgentFrameworkRuntime:
             status=UiPathRuntimeStatus.SUCCESSFUL,
         )
 
-    def _create_runtime_error(
-        self, e: Exception
-    ) -> UiPathAgentFrameworkRuntimeError:
+    def _create_runtime_error(self, e: Exception) -> UiPathAgentFrameworkRuntimeError:
         """Handle execution errors and create appropriate runtime error."""
         if isinstance(e, UiPathAgentFrameworkRuntimeError):
             return e

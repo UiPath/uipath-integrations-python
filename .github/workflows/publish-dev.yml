@@ -212,4 +212,4 @@ jobs:
       - name: Publish
         run: uv publish --index testpypi
         env:
-          UV_PUBLISH_TOKEN: ${{ matrix.package == 'uipath-openai-agents' && secrets.TEST_PYPI_TOKEN_OPENAI_AGENTS || matrix.package == 'uipath-google-adk' && secrets.TEST_PYPI_TOKEN_GOOGLE_ADK || secrets.TEST_PYPI_TOKEN }}
+          UV_PUBLISH_TOKEN: ${{ matrix.package == 'uipath-openai-agents' && secrets.TEST_PYPI_TOKEN_OPENAI_AGENTS || matrix.package == 'uipath-google-adk' && secrets.TEST_PYPI_TOKEN_GOOGLE_ADK || matrix.package == 'uipath-agent-framework' && secrets.TEST_PYPI_TOKEN_AGENT_FRAMEWORK || secrets.TEST_PYPI_TOKEN }}

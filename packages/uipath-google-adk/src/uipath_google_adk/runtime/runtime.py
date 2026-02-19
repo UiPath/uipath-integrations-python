@@ -433,7 +433,14 @@ class UiPathGoogleADKRuntime:
         serialized_output = serialize_defaults(output)
 
         if not isinstance(serialized_output, dict):
-            serialized_output = {"result": serialized_output}
+            serialized_output = {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "contentParts": [{"data": {"inline": serialized_output}}],
+                    }
+                ]
+            }
 
         return UiPathRuntimeResult(
             output=serialized_output,

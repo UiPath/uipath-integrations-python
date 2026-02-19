@@ -2,6 +2,7 @@
 name = "quickstart-agent"
 version = "0.0.1"
 description = "Quickstart Google ADK agent example"
+authors = [{ name = "John Doe" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,3 +18,4 @@ dev = [
 
 [tool.uv]
 override-dependencies = ["opentelemetry-sdk>=1.39.0,<1.40.0"]
+

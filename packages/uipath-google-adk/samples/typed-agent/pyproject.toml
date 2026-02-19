@@ -2,6 +2,7 @@
 name = "typed-agent"
 version = "0.0.1"
 description = "Google ADK agent with strongly-typed input/output schemas"
+authors = [{ name = "John Doe" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

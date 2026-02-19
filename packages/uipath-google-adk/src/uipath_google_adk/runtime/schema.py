@@ -9,7 +9,6 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from pydantic import BaseModel, TypeAdapter
-from uipath.core.chat import UiPathConversationMessage
 from uipath.runtime.schema import (
     UiPathRuntimeEdge,
     UiPathRuntimeGraph,
@@ -193,50 +192,61 @@ def get_entrypoints_schema(agent: BaseAgent) -> dict[str, Any]:
     return schema
 
 
-def _conversation_messages_schema() -> dict[str, Any]:
-    """Generate JSON schema for list[UiPathConversationMessage]."""
-    adapter = TypeAdapter(list[UiPathConversationMessage])
-    return adapter.json_schema()
+def _conversation_message_item_schema() -> dict[str, Any]:
+    """Minimal message schema: only role and contentParts required, contentParts items only need data.inline."""
+    return {
+        "type": "object",
+        "properties": {
+            "role": {"type": "string"},
+            "contentParts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "mimeType": {"type": "string"},
+                        "data": {
+                            "type": "object",
+                            "properties": {
+                                "inline": {},
+                            },
+                            "required": ["inline"],
+                        },
+                        "citations": {"type": "array", "items": {"type": "object"}},
+                    },
+                    "required": ["data"],
+                },
+            },
+            "toolCalls": {"type": "array", "items": {"type": "object"}},
+            "interrupts": {"type": "array", "items": {"type": "object"}},
+        },
+        "required": ["role", "contentParts"],
+    }
+
+
+def _default_messages_schema() -> dict[str, Any]:
+    """Default messages schema using minimal UiPath conversation message format."""
+    return {
+        "type": "object",
+        "properties": {
+            "messages": {
+                "type": "array",
+                "items": _conversation_message_item_schema(),
+                "title": "Messages",
+                "description": "UiPath conversation messages",
+            }
+        },
+        "required": ["messages"],
+    }
 
 
 def _default_input_schema() -> dict[str, Any]:
     """Default input schema using UiPath conversation message format."""
-    messages_schema = _conversation_messages_schema()
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "messages": {
-                "type": "array",
-                "items": messages_schema["items"],
-                "title": "Messages",
-                "description": "UiPath conversation messages",
-            }
-        },
-        "required": ["messages"],
-    }
-    if "$defs" in messages_schema:
-        schema["$defs"] = messages_schema["$defs"]
-    return schema
+    return _default_messages_schema()
 
 
 def _default_output_schema() -> dict[str, Any]:
     """Default output schema using UiPath conversation message format."""
-    messages_schema = _conversation_messages_schema()
-    schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "messages": {
-                "type": "array",
-                "items": messages_schema["items"],
-                "title": "Messages",
-                "description": "UiPath conversation messages",
-            }
-        },
-        "required": ["messages"],
-    }
-    if "$defs" in messages_schema:
-        schema["$defs"] = messages_schema["$defs"]
-    return schema
+    return _default_messages_schema()
 
 
 def get_agent_graph(agent: BaseAgent) -> UiPathRuntimeGraph:

@@ -3,7 +3,15 @@
 from collections.abc import Callable
 from typing import Any
 
-from agent_framework import BaseAgent, FunctionTool
+from agent_framework import (
+    AgentExecutor,
+    BaseAgent,
+    Edge,
+    Executor,
+    FunctionTool,
+    Workflow,
+    WorkflowAgent,
+)
 from uipath.runtime.schema import (
     UiPathRuntimeEdge,
     UiPathRuntimeGraph,
@@ -77,15 +85,160 @@ def _default_messages_schema() -> dict[str, Any]:
 def get_agent_graph(agent: BaseAgent) -> UiPathRuntimeGraph:
     """Extract graph structure from an Agent Framework agent.
 
-    Traverses the agent tree, inspecting tools for agent-as-tool instances
-    (created via BaseAgent.as_tool()). For each agent-as-tool, creates a
-    separate node and recursively processes its own tools.
+    Handles two cases:
+    1. WorkflowAgent (from orchestrations): extracts the underlying Workflow's
+       executors and edge_groups to build a proper multi-agent graph.
+    2. Regular BaseAgent: traverses the agent tree, inspecting tools for
+       agent-as-tool instances (created via BaseAgent.as_tool()).
 
     Args:
         agent: An Agent Framework BaseAgent instance
 
     Returns:
         UiPathRuntimeGraph with nodes and edges representing the agent structure
+    """
+    if isinstance(agent, WorkflowAgent):
+        return _build_workflow_graph(agent.workflow)
+
+    return _build_agent_graph(agent)
+
+
+def _build_workflow_graph(workflow: Workflow) -> UiPathRuntimeGraph:
+    """Build graph from a Workflow's executors and edge groups.
+
+    Traverses the workflow structure to create nodes for each executor
+    and edges from the workflow's edge groups. For AgentExecutors that
+    wrap agents with tools, also creates tool nodes.
+    """
+    nodes: list[UiPathRuntimeNode] = []
+    edges: list[UiPathRuntimeEdge] = []
+
+    # Add __start__ and __end__
+    nodes.append(
+        UiPathRuntimeNode(
+            id="__start__",
+            name="__start__",
+            type="__start__",
+            subgraph=None,
+            metadata=None,
+        )
+    )
+    nodes.append(
+        UiPathRuntimeNode(
+            id="__end__",
+            name="__end__",
+            type="__end__",
+            subgraph=None,
+            metadata=None,
+        )
+    )
+
+    executors: dict[str, Executor] = workflow.executors
+    start_id: str = workflow.start_executor_id
+
+    # Add a node for each executor
+    for exec_id, executor in executors.items():
+        nodes.append(
+            UiPathRuntimeNode(
+                id=exec_id,
+                name=exec_id,
+                type="node",
+                subgraph=None,
+                metadata=None,
+            )
+        )
+
+        # AgentExecutors wrap a BaseAgent that may have tools
+        if isinstance(executor, AgentExecutor):
+            inner_agent: BaseAgent | None = getattr(executor, "_agent", None)
+            if inner_agent is not None:
+                _add_executor_tool_nodes(exec_id, inner_agent, nodes, edges)
+
+    # Connect __start__ → start executor
+    edges.append(UiPathRuntimeEdge(source="__start__", target=start_id, label="input"))
+
+    # Process edge groups into graph edges
+    for edge_group in workflow.edge_groups:
+        group_type = type(edge_group).__name__
+        if group_type == "InternalEdgeGroup":
+            continue
+
+        edge: Edge
+        for edge in edge_group.edges:
+            label = edge.condition_name
+            edges.append(
+                UiPathRuntimeEdge(
+                    source=edge.source_id, target=edge.target_id, label=label
+                )
+            )
+
+    # Connect output executors → __end__
+    output_executors: list[Executor] = []
+    try:
+        output_executors = workflow.get_output_executors()
+    except Exception:
+        pass
+
+    if output_executors:
+        for executor in output_executors:
+            edges.append(
+                UiPathRuntimeEdge(source=executor.id, target="__end__", label="output")
+            )
+    else:
+        # Fallback: connect start executor to __end__
+        edges.append(
+            UiPathRuntimeEdge(source=start_id, target="__end__", label="output")
+        )
+
+    return UiPathRuntimeGraph(nodes=nodes, edges=edges)
+
+
+def _add_executor_tool_nodes(
+    executor_id: str,
+    agent: BaseAgent,
+    nodes: list[UiPathRuntimeNode],
+    edges: list[UiPathRuntimeEdge],
+) -> None:
+    """Add tool nodes for an executor's wrapped agent's tools."""
+    tools = get_agent_tools(agent)
+    if not tools:
+        return
+
+    regular_tools = [t for t in tools if extract_agent_from_tool(t) is None]
+    if not regular_tools:
+        return
+
+    tool_names = [_get_tool_name(t) for t in regular_tools]
+    tool_names = [n for n in tool_names if n]
+
+    if tool_names:
+        tools_node_id = f"{executor_id}_tools"
+        nodes.append(
+            UiPathRuntimeNode(
+                id=tools_node_id,
+                name="tools",
+                type="tool",
+                subgraph=None,
+                metadata={
+                    "tool_names": tool_names,
+                    "tool_count": len(tool_names),
+                },
+            )
+        )
+        edges.append(
+            UiPathRuntimeEdge(source=executor_id, target=tools_node_id, label=None)
+        )
+        edges.append(
+            UiPathRuntimeEdge(source=tools_node_id, target=executor_id, label=None)
+        )
+
+
+def _build_agent_graph(agent: BaseAgent) -> UiPathRuntimeGraph:
+    """Build graph from a regular BaseAgent with tools.
+
+    Traverses the agent tree, inspecting tools for agent-as-tool instances
+    (created via BaseAgent.as_tool()). For each agent-as-tool, creates a
+    separate node and recursively processes its own tools.
     """
     nodes: list[UiPathRuntimeNode] = []
     edges: list[UiPathRuntimeEdge] = []
@@ -238,6 +391,9 @@ def _add_agent_node(
     _process_tools(agent, agent_name, nodes, edges, visited)
 
 
+_extract_cache: dict[int, BaseAgent | None] = {}
+
+
 def extract_agent_from_tool(
     tool: FunctionTool | Callable[..., Any],
 ) -> BaseAgent | None:
@@ -245,7 +401,20 @@ def extract_agent_from_tool(
 
     The as_tool() method creates an async agent_wrapper closure that captures
     `self` (the BaseAgent instance). We inspect the closure cells to find it.
+    Results are cached by tool identity to avoid repeated introspection.
     """
+    tool_id = id(tool)
+    if tool_id in _extract_cache:
+        return _extract_cache[tool_id]
+
+    result = _extract_agent_from_closure(tool)
+    _extract_cache[tool_id] = result
+    return result
+
+
+def _extract_agent_from_closure(
+    tool: FunctionTool | Callable[..., Any],
+) -> BaseAgent | None:
     if not isinstance(tool, FunctionTool):
         return None
 

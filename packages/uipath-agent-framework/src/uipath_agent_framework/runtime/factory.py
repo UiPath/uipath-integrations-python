@@ -45,9 +45,7 @@ class UiPathAgentFrameworkRuntimeFactory:
         self.context = context
         self._config: AgentFrameworkConfig | None = None
 
-        self._agent_cache: dict[str, BaseAgent] = {}
         self._agent_loaders: dict[str, AgentFrameworkAgentLoader] = {}
-        self._agent_lock = asyncio.Lock()
 
         self._session_store: SqliteSessionStore | None = None
         self._session_store_lock = asyncio.Lock()
@@ -165,27 +163,16 @@ class UiPathAgentFrameworkRuntimeFactory:
             ) from e
 
     async def _resolve_agent(self, entrypoint: str) -> BaseAgent:
+        """Load a fresh agent instance for the given entrypoint.
+
+        Agents are NOT cached — each runtime gets its own instance.
+        Agent Framework agents (especially WorkflowAgents) hold internal
+        mutable state (e.g. Workflow._is_running) that prevents concurrent
+        executions on the same instance. Since the factory creates multiple
+        runtimes in parallel (one per request), sharing an agent instance
+        would cause "Workflow is already running" errors.
         """
-        Resolve an agent from configuration.
-        Results are cached for reuse across multiple runtime instances.
-
-        Args:
-            entrypoint: Name of the agent to resolve
-
-        Returns:
-            The loaded BaseAgent ready for execution
-
-        Raises:
-            UiPathAgentFrameworkRuntimeError: If resolution fails
-        """
-        async with self._agent_lock:
-            if entrypoint in self._agent_cache:
-                return self._agent_cache[entrypoint]
-
-            loaded_agent = await self._load_agent(entrypoint)
-            self._agent_cache[entrypoint] = loaded_agent
-
-            return loaded_agent
+        return await self._load_agent(entrypoint)
 
     def discover_entrypoints(self) -> list[str]:
         """
@@ -256,7 +243,6 @@ class UiPathAgentFrameworkRuntimeFactory:
             await loader.cleanup()
 
         self._agent_loaders.clear()
-        self._agent_cache.clear()
 
         if self._session_store:
             await self._session_store.dispose()

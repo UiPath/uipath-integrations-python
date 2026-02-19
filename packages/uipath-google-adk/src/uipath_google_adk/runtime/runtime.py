@@ -12,7 +12,7 @@ from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
 from google.adk.sessions.session import Session
 from google.genai import types
-from uipath.core.serialization import serialize_defaults
+from uipath.core.serialization import serialize_json
 from uipath.runtime import (
     UiPathExecuteOptions,
     UiPathRuntimeResult,
@@ -362,7 +362,7 @@ class UiPathGoogleADKRuntime:
                 is_transfer = fc.name == _TRANSFER_FN
                 payload = {
                     "function_name": fc.name or "unknown",
-                    "function_args": serialize_defaults(fc.args or {}),
+                    "function_args": json.loads(serialize_json(fc.args or {})),
                 }
                 event_type = "agent_transfer" if is_transfer else "function_call"
                 # Agent node always gets the event
@@ -393,7 +393,7 @@ class UiPathGoogleADKRuntime:
                     continue
                 payload = {
                     "function_name": fr.name or "unknown",
-                    "function_response": serialize_defaults(fr.response or {}),
+                    "function_response": json.loads(serialize_json(fr.response or {})),
                 }
                 events.append(
                     UiPathRuntimeStateEvent(
@@ -419,7 +419,7 @@ class UiPathGoogleADKRuntime:
         if event.actions.state_delta:
             events.append(
                 UiPathRuntimeStateEvent(
-                    payload=serialize_defaults(event.actions.state_delta),
+                    payload=json.loads(serialize_json(event.actions.state_delta)),
                     node_name=author,
                     metadata={"event_type": "state_delta"},
                 )
@@ -430,7 +430,7 @@ class UiPathGoogleADKRuntime:
 
     def _create_success_result(self, output: Any) -> UiPathRuntimeResult:
         """Create result for successful completion."""
-        serialized_output = serialize_defaults(output)
+        serialized_output = json.loads(serialize_json(output))
 
         if not isinstance(serialized_output, dict):
             serialized_output = {

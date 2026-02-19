@@ -12,7 +12,7 @@ from llama_index.core.agent.workflow.workflow_events import (
     ToolCall,
     ToolCallResult,
 )
-from uipath.core.serialization import serialize_defaults
+from uipath.core.serialization import serialize_json
 from uipath.runtime import (
     UiPathExecuteOptions,
     UiPathRuntimeResult,
@@ -178,14 +178,14 @@ class UiPathLlamaIndexRuntime:
                     (AgentOutput, AgentInput, AgentStream, ToolCall, ToolCallResult),
                 ):
                     message_event = UiPathRuntimeMessageEvent(
-                        payload=serialize_defaults(event),
+                        payload=json.loads(serialize_json(event)),
                         node_name=node_name,
                         execution_id=self.runtime_id,
                     )
                     yield message_event
                 elif not isinstance(event, BreakpointEvent):
                     state_event = UiPathRuntimeStateEvent(
-                        payload=serialize_defaults(event),
+                        payload=json.loads(serialize_json(event)),
                         node_name=node_name,
                         execution_id=self.runtime_id,
                     )
@@ -255,7 +255,7 @@ class UiPathLlamaIndexRuntime:
         return UiPathBreakpointResult(
             breakpoint_node=self._get_node_name(event),
             breakpoint_type="before",
-            current_state=serialize_defaults(event),
+            current_state=json.loads(serialize_json(event)),
             next_nodes=[],  # We don't know what's next in the stream
         )
 
@@ -284,11 +284,13 @@ class UiPathLlamaIndexRuntime:
         """Create result for successful completion."""
         if isinstance(output, AgentOutput):
             if output.structured_response is not None:
-                serialized_output = serialize_defaults(output.structured_response)
+                serialized_output = json.loads(
+                    serialize_json(output.structured_response)
+                )
             else:
-                serialized_output = serialize_defaults(output)
+                serialized_output = json.loads(serialize_json(output))
         else:
-            serialized_output = serialize_defaults(output)
+            serialized_output = json.loads(serialize_json(output))
 
         if isinstance(serialized_output, str):
             serialized_output = {"result": serialized_output}

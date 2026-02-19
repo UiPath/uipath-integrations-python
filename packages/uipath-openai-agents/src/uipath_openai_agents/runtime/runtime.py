@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from agents import Agent, Runner
 from pydantic import BaseModel
-from uipath.core.serialization import serialize_defaults
+from uipath.core.serialization import serialize_json
 from uipath.runtime import (
     UiPathExecuteOptions,
     UiPathRuntimeResult,
@@ -207,12 +207,12 @@ class UiPathOpenAIAgentRuntime:
                 # Determine if this is a message or state event
                 if event_name in ["message_output_created", "reasoning_item_created"]:
                     return UiPathRuntimeMessageEvent(
-                        payload=serialize_defaults(event_item),
+                        payload=json.loads(serialize_json(event_item)),
                         metadata={"event_name": event_name},
                     )
                 else:
                     return UiPathRuntimeStateEvent(
-                        payload=serialize_defaults(event_item),
+                        payload=json.loads(serialize_json(event_item)),
                         metadata={"event_name": event_name},
                     )
 
@@ -265,7 +265,7 @@ class UiPathOpenAIAgentRuntime:
         Returns:
             Dictionary representation of the message
         """
-        serialized = serialize_defaults(message)
+        serialized = json.loads(serialize_json(message))
 
         # Ensure the result is a dictionary
         if isinstance(serialized, dict):
@@ -285,7 +285,7 @@ class UiPathOpenAIAgentRuntime:
             UiPathRuntimeResult with serialized output
         """
         # Serialize output
-        serialized_output = serialize_defaults(output)
+        serialized_output = json.loads(serialize_json(output))
 
         # Ensure output is a dictionary
         if not isinstance(serialized_output, dict):

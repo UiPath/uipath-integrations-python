@@ -522,6 +522,118 @@ class TestToolStateEvents:
         # Text token chunks should not appear in the completed payload
         assert "Hello" not in payload_str or "world" not in payload_str
 
+    async def test_tool_events_from_executor_completed_when_output_filtered(self):
+        """When the workflow filters output events (e.g. GroupChat), tool state
+        events should still appear — extracted from executor_completed data."""
+        worker = RawAgent(_mock_client, name="researcher", tools=[search_wikipedia])
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="wf")
+
+        # Simulate a workflow that does NOT emit output events (they were
+        # filtered by _should_yield_output_event), but executor_completed
+        # carries the full data including AgentResponseUpdate chunks.
+        call_update = AgentResponseUpdate(
+            contents=[
+                Content(
+                    type="function_call",
+                    name="search_wikipedia",
+                    call_id="c1",
+                    arguments='{"query": "test"}',
+                )
+            ]
+        )
+        result_update = AgentResponseUpdate(
+            contents=[
+                Content(type="function_result", call_id="c1", result="found")
+            ]
+        )
+        summary = MagicMock()  # AgentExecutorResponse
+        completed_data = [summary, call_update, result_update]
+
+        final = MagicMock()
+        final.get_outputs.return_value = []
+        workflow.run = MagicMock(  # type: ignore[method-assign]
+            return_value=_MockAsyncStream(
+                [
+                    # No "output" events — simulating the filter
+                    _wf_event("executor_invoked", "researcher"),
+                    _wf_event("executor_completed", "researcher", data=completed_data),
+                ],
+                final,
+            )
+        )
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+
+        runtime = _make_runtime(agent)
+        events = await _collect_events(runtime)
+
+        se = _state_events(events)
+        tool_events = [(n, p) for n, p in se if n == "researcher_tools"]
+        assert ("researcher_tools", STARTED) in tool_events
+        assert ("researcher_tools", COMPLETED) in tool_events
+
+        # Tool STARTED should carry the tool_name
+        tool_started = [
+            e
+            for e in events
+            if isinstance(e, UiPathRuntimeStateEvent)
+            and e.node_name == "researcher_tools"
+            and e.phase == STARTED
+        ]
+        assert len(tool_started) == 1
+        assert tool_started[0].payload == {"tool_name": "search_wikipedia"}
+
+    async def test_no_duplicate_tool_events_when_output_present(self):
+        """When output events ARE emitted (normal case), tool events should NOT
+        be extracted again from executor_completed to avoid duplicates."""
+        worker = RawAgent(_mock_client, name="agent_y", tools=[calculator])
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="wf")
+
+        call_update = AgentResponseUpdate(
+            contents=[
+                Content(
+                    type="function_call",
+                    name="calculator",
+                    call_id="c1",
+                    arguments="{}",
+                )
+            ]
+        )
+        result_update = AgentResponseUpdate(
+            contents=[
+                Content(type="function_result", call_id="c1", result="42")
+            ]
+        )
+        summary = MagicMock()
+        completed_data = [summary, call_update, result_update]
+
+        final = MagicMock()
+        final.get_outputs.return_value = []
+        workflow.run = MagicMock(  # type: ignore[method-assign]
+            return_value=_MockAsyncStream(
+                [
+                    _wf_event("executor_invoked", "agent_y"),
+                    # Output events ARE present (normal path)
+                    _wf_event("output", "agent_y", data=call_update),
+                    _wf_event("output", "agent_y", data=result_update),
+                    _wf_event("executor_completed", "agent_y", data=completed_data),
+                ],
+                final,
+            )
+        )
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+
+        runtime = _make_runtime(agent)
+        events = await _collect_events(runtime)
+
+        se = _state_events(events)
+        tool_events = [(n, p) for n, p in se if n == "agent_y_tools"]
+
+        # Should have exactly 1 STARTED + 1 COMPLETED (not duplicated)
+        assert tool_events.count(("agent_y_tools", STARTED)) == 1
+        assert tool_events.count(("agent_y_tools", COMPLETED)) == 1
+
 
 # ===========================================================================
 # Checkpoint propagation tests

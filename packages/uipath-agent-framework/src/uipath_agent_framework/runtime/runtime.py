@@ -349,6 +349,10 @@ class UiPathAgentFrameworkRuntime:
 
         request_info_map: dict[str, Any] = {}
         is_suspended = False
+        # Track executors whose tool events were emitted via output events.
+        # When the workflow filters output events (e.g. GroupChat), tool events
+        # are instead extracted from executor_completed data as a fallback.
+        executors_with_tool_outputs: set[str] = set()
 
         # Emit an early STARTED event for the start executor so the graph
         # visualization shows it immediately rather than after it finishes.
@@ -380,6 +384,14 @@ class UiPathAgentFrameworkRuntime:
                         phase=UiPathRuntimeStatePhase.STARTED,
                     )
                 elif event.type == "executor_completed":
+                    # When output events were filtered by the workflow (e.g.
+                    # GroupChat where participants are not output executors),
+                    # extract tool state events from the completed data instead.
+                    if event.executor_id not in executors_with_tool_outputs:
+                        for tool_event in self._extract_tool_state_events(
+                            event.data, event.executor_id
+                        ):
+                            yield tool_event
                     yield UiPathRuntimeStateEvent(
                         payload=self._serialize_event_data(
                             self._filter_completed_data(event.data)
@@ -389,9 +401,12 @@ class UiPathAgentFrameworkRuntime:
                     )
                 elif event.type == "output":
                     executor_id = getattr(event, "executor_id", None) or ""
-                    for tool_event in self._extract_tool_state_events(
+                    tool_events = self._extract_tool_state_events(
                         event.data, executor_id
-                    ):
+                    )
+                    if tool_events:
+                        executors_with_tool_outputs.add(executor_id)
+                    for tool_event in tool_events:
                         yield tool_event
                     for msg_event in self._extract_workflow_messages(event.data):
                         yield UiPathRuntimeMessageEvent(payload=msg_event)

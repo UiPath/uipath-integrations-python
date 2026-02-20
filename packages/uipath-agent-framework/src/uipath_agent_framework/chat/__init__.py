@@ -18,10 +18,15 @@ def __getattr__(name):
         from .anthropic import UiPathAnthropicClient
 
         return UiPathAnthropicClient
+    if name == "requires_approval":
+        from .hitl import requires_approval
+
+        return requires_approval
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
     "UiPathOpenAIChatClient",
     "UiPathAnthropicClient",
+    "requires_approval",
 ]

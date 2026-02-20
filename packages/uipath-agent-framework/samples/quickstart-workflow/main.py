@@ -1,4 +1,5 @@
 import httpx
+from agent_framework import WorkflowBuilder
 
 from uipath_agent_framework.chat import UiPathOpenAIChatClient
 
@@ -55,8 +56,11 @@ def get_weather(location: str) -> str:
 
 
 client = UiPathOpenAIChatClient(model="gpt-5-mini-2025-08-07")
-agent = client.as_agent(
+weather_agent = client.as_agent(
     name="weather_agent",
     instructions="You are a helpful weather assistant. Use the get_weather tool to provide weather information.",
     tools=[get_weather],
 )
+
+workflow = WorkflowBuilder(start_executor=weather_agent).build()
+agent = workflow.as_agent(name="weather_workflow")

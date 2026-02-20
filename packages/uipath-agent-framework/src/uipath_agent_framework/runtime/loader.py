@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any, Self
 
-from agent_framework import BaseAgent
+from agent_framework import BaseAgent, WorkflowAgent
 from uipath.runtime.errors import UiPathErrorCategory
 
 from .errors import (
@@ -51,12 +51,12 @@ class AgentFrameworkAgentLoader:
         file, variable = file_path.split(":", 1)
         return cls(name=name, file_path=file, variable_name=variable)
 
-    async def load(self) -> BaseAgent:
+    async def load(self) -> WorkflowAgent:
         """
         Load and return the agent.
 
         Returns:
-            An instance of the loaded BaseAgent.
+            An instance of the loaded WorkflowAgent.
 
         Raises:
             UiPathAgentFrameworkRuntimeError: If loading fails
@@ -97,11 +97,12 @@ class AgentFrameworkAgentLoader:
             )
 
         agent = await self._resolve_agent(agent_object)
-        if not isinstance(agent, BaseAgent):
+        if not isinstance(agent, WorkflowAgent):
             raise UiPathAgentFrameworkRuntimeError(
                 code=UiPathAgentFrameworkErrorCode.AGENT_TYPE_ERROR,
                 title="Invalid agent type",
-                detail=f"Expected BaseAgent, got '{type(agent).__name__}'.",
+                detail=f"Expected WorkflowAgent, got '{type(agent).__name__}'. "
+                "Use workflow.as_agent() to create a WorkflowAgent.",
                 category=UiPathErrorCategory.USER,
             )
 

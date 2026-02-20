@@ -7,6 +7,12 @@ from uipath.runtime import (
 )
 
 from .factory import UiPathAgentFrameworkRuntimeFactory
+from .interrupt import AgentInterruptException, BreakpointMiddleware
+from .resumable_storage import (
+    ScopedCheckpointStorage,
+    SqliteCheckpointStorage,
+    SqliteResumableStorage,
+)
 from .runtime import UiPathAgentFrameworkRuntime
 from .schema import get_agent_graph, get_entrypoints_schema
 
@@ -32,4 +38,9 @@ __all__ = [
     "get_agent_graph",
     "UiPathAgentFrameworkRuntimeFactory",
     "UiPathAgentFrameworkRuntime",
+    "AgentInterruptException",
+    "BreakpointMiddleware",
+    "SqliteResumableStorage",
+    "SqliteCheckpointStorage",
+    "ScopedCheckpointStorage",
 ]

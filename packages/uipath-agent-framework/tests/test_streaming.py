@@ -10,7 +10,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from agent_framework import (
+    AgentExecutor,
     AgentResponseUpdate,
+    AgentSession,
     BaseAgent,
     Content,
     RawAgent,
@@ -59,27 +61,11 @@ class _MockAsyncStream:
 # ---------------------------------------------------------------------------
 
 
-def _update(*contents: Content) -> AgentResponseUpdate:
-    return AgentResponseUpdate(contents=list(contents))
-
-
-def _fc(name: str, call_id: str = "c1") -> Content:
-    return Content(type="function_call", name=name, call_id=call_id)
-
-
-def _fr(name: str = "", call_id: str = "c1", result: Any = "ok") -> Content:
-    return Content(type="function_result", name=name, call_id=call_id, result=result)
-
-
-def _text(text: str = "hi") -> Content:
-    return Content(type="text", text=text)
-
-
-def _wf_event(event_type: str, executor_id: str) -> MagicMock:
+def _wf_event(event_type: str, executor_id: str, data: Any = None) -> MagicMock:
     evt = MagicMock()
     evt.type = event_type
     evt.executor_id = executor_id
-    evt.data = None
+    evt.data = data
     return evt
 
 
@@ -160,168 +146,6 @@ def _assert_started_before_completed(
     assert first_started is not None, f"{node} never STARTED"
     assert first_completed is not None, f"{node} never COMPLETED"
     assert first_started < first_completed, f"{node}: COMPLETED before STARTED"
-
-
-# ===========================================================================
-# Agent streaming tests
-# ===========================================================================
-
-
-class TestAgentStreamingEvents:
-    """Verify STARTED/COMPLETED pairing for agent streaming."""
-
-    async def test_simple_agent_no_tools(self):
-        """Agent with no tools: root STARTED then COMPLETED."""
-        agent = RawAgent(_mock_client, name="root")
-        agent.run = MagicMock(return_value=_MockAsyncStream([_update(_text())]))  # type: ignore[method-assign]
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
-
-        runtime = _make_runtime(agent)
-        events = await _collect_events(runtime)
-
-        se = _state_events(events)
-        _assert_all_completed(se)
-        _assert_started_before_completed(se, "root")
-        assert isinstance(events[-1], UiPathRuntimeResult)
-
-    async def test_agent_with_regular_tools(self):
-        """Agent with regular tools: tools node gets STARTED/COMPLETED."""
-        agent = RawAgent(_mock_client, name="researcher", tools=[search_wikipedia])
-        agent.run = MagicMock(  # type: ignore[method-assign]
-            return_value=_MockAsyncStream(
-                [
-                    _update(_fc("search_wikipedia", "c1")),
-                    _update(_fr("search_wikipedia", "c1", "wiki result")),
-                    _update(_text("here's what I found")),
-                ]
-            )
-        )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
-
-        runtime = _make_runtime(agent)
-        events = await _collect_events(runtime)
-
-        se = _state_events(events)
-        _assert_all_completed(se)
-        _assert_started_before_completed(se, "researcher")
-        _assert_started_before_completed(se, "researcher_tools")
-
-    async def test_multi_agent_with_sub_agents(self):
-        """Coordinator with sub-agents via as_tool(): all nodes paired."""
-        research = RawAgent(
-            _mock_client,
-            name="research_agent",
-            tools=[search_wikipedia],
-        )
-        coder = RawAgent(
-            _mock_client,
-            name="code_agent",
-            tools=[run_python],
-        )
-        coordinator = RawAgent(
-            _mock_client,
-            name="coordinator",
-            tools=[research.as_tool(), coder.as_tool()],
-        )
-
-        # Get actual tool names assigned by as_tool()
-        tools = coordinator.default_options.get("tools", [])
-        research_tool_name = tools[0].name
-        code_tool_name = tools[1].name
-
-        coordinator.run = MagicMock(  # type: ignore[method-assign]
-            return_value=_MockAsyncStream(
-                [
-                    _update(_fc(research_tool_name, "c1")),
-                    _update(_fr("", "c1", "research done")),
-                    _update(_fc(code_tool_name, "c2")),
-                    _update(_fr("", "c2", "code done")),
-                    _update(_text("final answer")),
-                ]
-            )
-        )
-        coordinator.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
-
-        runtime = _make_runtime(coordinator)
-        events = await _collect_events(runtime)
-
-        se = _state_events(events)
-        _assert_all_completed(se)
-        _assert_started_before_completed(se, "coordinator")
-        _assert_started_before_completed(se, "research_agent")
-        _assert_started_before_completed(se, "research_agent_tools")
-        _assert_started_before_completed(se, "code_agent")
-        _assert_started_before_completed(se, "code_agent_tools")
-
-    async def test_sub_agent_completed_via_call_id(self):
-        """Sub-agent COMPLETED even when function_result has empty name.
-
-        The original bug: as_tool() wrappers produce function_result with
-        empty content.name. We match by call_id instead.
-        """
-        inner = RawAgent(_mock_client, name="inner_agent", tools=[calculator])
-        outer = RawAgent(
-            _mock_client,
-            name="outer",
-            tools=[inner.as_tool()],
-        )
-
-        tool_name = outer.default_options["tools"][0].name
-
-        outer.run = MagicMock(  # type: ignore[method-assign]
-            return_value=_MockAsyncStream(
-                [
-                    _update(_fc(tool_name, "call_xyz")),
-                    # empty name on result — must still complete inner_agent
-                    _update(_fr("", "call_xyz", "42")),
-                    _update(_text("done")),
-                ]
-            )
-        )
-        outer.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
-
-        runtime = _make_runtime(outer)
-        events = await _collect_events(runtime)
-
-        se = _state_events(events)
-        _assert_all_completed(se)
-        _assert_started_before_completed(se, "inner_agent")
-        _assert_started_before_completed(se, "inner_agent_tools")
-
-    async def test_mixed_regular_tools_and_sub_agents(self):
-        """Agent with both regular tools and agent-as-tool."""
-        inner = RawAgent(_mock_client, name="helper")
-        agent = RawAgent(
-            _mock_client,
-            name="main",
-            tools=[search_wikipedia, inner.as_tool()],
-        )
-
-        agent_tool_name = next(
-            t.name for t in agent.default_options["tools"] if hasattr(t, "func")
-        )
-
-        agent.run = MagicMock(  # type: ignore[method-assign]
-            return_value=_MockAsyncStream(
-                [
-                    _update(_fc("search_wikipedia", "c1")),
-                    _update(_fr("search_wikipedia", "c1", "wiki")),
-                    _update(_fc(agent_tool_name, "c2")),
-                    _update(_fr("", "c2", "helped")),
-                    _update(_text("done")),
-                ]
-            )
-        )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
-
-        runtime = _make_runtime(agent)
-        events = await _collect_events(runtime)
-
-        se = _state_events(events)
-        _assert_all_completed(se)
-        _assert_started_before_completed(se, "main")
-        _assert_started_before_completed(se, "main_tools")
-        _assert_started_before_completed(se, "helper")
 
 
 # ===========================================================================
@@ -451,7 +275,7 @@ class TestFactoryNoCaching:
             return agent
 
         with patch.object(factory, "_load_agent", side_effect=_fake_load_agent):
-            with patch.object(factory, "_get_session_store", new_callable=AsyncMock):
+            with patch.object(factory, "_get_storage", new_callable=AsyncMock):
                 runtimes = await asyncio.gather(
                     factory.new_runtime("agent", "runtime_1"),
                     factory.new_runtime("agent", "runtime_2"),
@@ -460,5 +284,475 @@ class TestFactoryNoCaching:
 
         # Each runtime must have gotten a separate agent instance
         assert len(loaded_agents) == 3
-        agents = [r.agent for r in runtimes]  # type: ignore[attr-defined]
+        # Factory wraps in UiPathResumableRuntime; access delegate.agent
+        agents = [r.delegate.agent for r in runtimes]  # type: ignore[attr-defined]
         assert len(set(id(a) for a in agents)) == 3, "Runtimes share agent instances!"
+
+
+# ===========================================================================
+# Tool state event tests
+# ===========================================================================
+
+
+class TestToolStateEvents:
+    """Verify that output events with function_call/function_result Content
+    emit STARTED/COMPLETED state events for tool nodes."""
+
+    async def test_tool_call_emits_state_events(self):
+        """Output event with function_call + function_result Content should
+        produce STARTED and COMPLETED state events for '{executor}_tools'."""
+        worker = RawAgent(_mock_client, name="weather_agent", tools=[calculator])
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="wf")
+
+        # Simulate a tool call cycle: function_call then function_result
+        call_content = Content(
+            type="function_call",
+            name="calculator",
+            call_id="call_1",
+            arguments='{"expression": "2+2"}',
+        )
+        result_content = Content(
+            type="function_result",
+            call_id="call_1",
+            result="4",
+        )
+
+        call_update = AgentResponseUpdate(contents=[call_content])
+        result_update = AgentResponseUpdate(contents=[result_content])
+
+        final = MagicMock()
+        final.get_outputs.return_value = []
+        workflow.run = MagicMock(  # type: ignore[method-assign]
+            return_value=_MockAsyncStream(
+                [
+                    _wf_event("executor_invoked", "weather_agent"),
+                    _wf_event("output", "weather_agent", data=call_update),
+                    _wf_event("output", "weather_agent", data=result_update),
+                    _wf_event("executor_completed", "weather_agent"),
+                ],
+                final,
+            )
+        )
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+
+        runtime = _make_runtime(agent)
+        events = await _collect_events(runtime)
+
+        se = _state_events(events)
+
+        # Tool node should have STARTED and COMPLETED
+        tool_events = [(n, p) for n, p in se if n == "weather_agent_tools"]
+        assert ("weather_agent_tools", STARTED) in tool_events
+        assert ("weather_agent_tools", COMPLETED) in tool_events
+        _assert_started_before_completed(se, "weather_agent_tools")
+
+        # The STARTED event should carry the tool_name payload
+        tool_started = [
+            e
+            for e in events
+            if isinstance(e, UiPathRuntimeStateEvent)
+            and e.node_name == "weather_agent_tools"
+            and e.phase == STARTED
+        ]
+        assert len(tool_started) == 1
+        assert tool_started[0].payload == {"tool_name": "calculator"}
+
+    async def test_multiple_tool_calls_emit_paired_events(self):
+        """Multiple tool call cycles should each produce a STARTED/COMPLETED pair."""
+        worker = RawAgent(
+            _mock_client,
+            name="multi_tool_agent",
+            tools=[calculator, search_wikipedia],
+        )
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="wf")
+
+        updates = [
+            AgentResponseUpdate(
+                contents=[
+                    Content(
+                        type="function_call",
+                        name="calculator",
+                        call_id="c1",
+                        arguments="{}",
+                    )
+                ]
+            ),
+            AgentResponseUpdate(
+                contents=[
+                    Content(type="function_result", call_id="c1", result="42")
+                ]
+            ),
+            AgentResponseUpdate(
+                contents=[
+                    Content(
+                        type="function_call",
+                        name="search_wikipedia",
+                        call_id="c2",
+                        arguments="{}",
+                    )
+                ]
+            ),
+            AgentResponseUpdate(
+                contents=[
+                    Content(type="function_result", call_id="c2", result="found")
+                ]
+            ),
+        ]
+
+        wf_events = [_wf_event("executor_invoked", "multi_tool_agent")]
+        for upd in updates:
+            wf_events.append(_wf_event("output", "multi_tool_agent", data=upd))
+        wf_events.append(_wf_event("executor_completed", "multi_tool_agent"))
+
+        final = MagicMock()
+        final.get_outputs.return_value = []
+        workflow.run = MagicMock(return_value=_MockAsyncStream(wf_events, final))  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+
+        runtime = _make_runtime(agent)
+        events = await _collect_events(runtime)
+
+        se = _state_events(events)
+        tool_events = [(n, p) for n, p in se if n == "multi_tool_agent_tools"]
+
+        # Two STARTED + two COMPLETED
+        assert tool_events.count(("multi_tool_agent_tools", STARTED)) == 2
+        assert tool_events.count(("multi_tool_agent_tools", COMPLETED)) == 2
+
+    async def test_no_tool_events_for_text_content(self):
+        """Output events with only text Content should not emit tool state events."""
+        worker = RawAgent(_mock_client, name="text_agent")
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="wf")
+
+        text_update = AgentResponseUpdate(
+            contents=[Content(type="text", text="Hello world")]
+        )
+
+        final = MagicMock()
+        final.get_outputs.return_value = []
+        workflow.run = MagicMock(  # type: ignore[method-assign]
+            return_value=_MockAsyncStream(
+                [
+                    _wf_event("executor_invoked", "text_agent"),
+                    _wf_event("output", "text_agent", data=text_update),
+                    _wf_event("executor_completed", "text_agent"),
+                ],
+                final,
+            )
+        )
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+
+        runtime = _make_runtime(agent)
+        events = await _collect_events(runtime)
+
+        se = _state_events(events)
+        tool_events = [(n, p) for n, p in se if "_tools" in n]
+        assert tool_events == [], "Text-only output should not emit tool state events"
+
+    async def test_executor_completed_payload_excludes_streaming_updates(self):
+        """executor_completed StateEvent payload must NOT contain
+        AgentResponseUpdate streaming chunks — only the summary data."""
+        worker = RawAgent(_mock_client, name="agent_x", tools=[calculator])
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="wf")
+
+        # Simulate streaming: many AgentResponseUpdate chunks arrive as output
+        # events, then executor_completed carries sent_messages + yielded_outputs
+        text_chunks = [
+            AgentResponseUpdate(contents=[Content(type="text", text=tok)])
+            for tok in ["Hello", " ", "world"]
+        ]
+        call_chunk = AgentResponseUpdate(
+            contents=[
+                Content(
+                    type="function_call",
+                    name="calculator",
+                    call_id="c1",
+                    arguments="{}",
+                )
+            ]
+        )
+        result_chunk = AgentResponseUpdate(
+            contents=[
+                Content(type="function_result", call_id="c1", result="42")
+            ]
+        )
+
+        # The framework packs sent_messages + yielded_outputs into completed data
+        summary = MagicMock()  # represents AgentExecutorResponse (not an update)
+        completed_data = [summary] + text_chunks + [call_chunk, result_chunk]
+
+        final = MagicMock()
+        final.get_outputs.return_value = []
+
+        stream_events = [
+            _wf_event("executor_invoked", "agent_x"),
+        ]
+        for chunk in text_chunks + [call_chunk, result_chunk]:
+            stream_events.append(_wf_event("output", "agent_x", data=chunk))
+        stream_events.append(
+            _wf_event("executor_completed", "agent_x", data=completed_data)
+        )
+
+        workflow.run = MagicMock(  # type: ignore[method-assign]
+            return_value=_MockAsyncStream(stream_events, final)
+        )
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+
+        runtime = _make_runtime(agent)
+        events = await _collect_events(runtime)
+
+        # Find the executor_completed state event for agent_x
+        completed_events = [
+            e
+            for e in events
+            if isinstance(e, UiPathRuntimeStateEvent)
+            and e.node_name == "agent_x"
+            and e.phase == COMPLETED
+        ]
+        assert len(completed_events) == 1
+
+        # The payload must NOT contain any AgentResponseUpdate data
+        payload = completed_events[0].payload
+        payload_str = str(payload)
+        assert "agent_response_update" not in payload_str.lower()
+        # Text token chunks should not appear in the completed payload
+        assert "Hello" not in payload_str or "world" not in payload_str
+
+
+# ===========================================================================
+# Checkpoint propagation tests
+# ===========================================================================
+
+
+class TestCheckpointPropagation:
+    """Verify that checkpoint_storage is passed to workflow.run()."""
+
+    async def test_checkpoint_storage_passed_to_workflow_run_stream(self):
+        """Streaming: workflow.run() should receive checkpoint_storage parameter."""
+        worker = RawAgent(_mock_client, name="assistant")
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="chat_wf")
+
+        mock_checkpoint_storage = MagicMock()
+        captured_kwargs: list[dict[str, Any]] = []
+
+        def mock_run(**kwargs):
+            captured_kwargs.append(kwargs)
+            final = MagicMock()
+            final.get_outputs.return_value = []
+            return _MockAsyncStream(
+                [
+                    _wf_event("executor_invoked", "assistant"),
+                    _wf_event("executor_completed", "assistant"),
+                ],
+                final,
+            )
+
+        workflow.run = mock_run  # type: ignore[method-assign]
+
+        runtime = UiPathAgentFrameworkRuntime(
+            agent=agent,
+            runtime_id="test-session",
+            checkpoint_storage=mock_checkpoint_storage,
+        )
+        runtime.chat = MagicMock()
+        runtime.chat.map_messages_to_input.return_value = "hello"
+        runtime.chat.map_streaming_content.return_value = []
+        runtime.chat.close_message.return_value = []
+
+        await _collect_events(runtime)
+
+        assert len(captured_kwargs) == 1
+        assert captured_kwargs[0]["checkpoint_storage"] is mock_checkpoint_storage
+        assert captured_kwargs[0]["stream"] is True
+
+    async def test_checkpoint_storage_passed_to_workflow_run_execute(self):
+        """Non-streaming execute() should pass checkpoint_storage to workflow.run()."""
+        worker = RawAgent(_mock_client, name="assistant")
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="exec_wf")
+
+        mock_checkpoint_storage = MagicMock()
+        captured_kwargs: list[dict[str, Any]] = []
+
+        async def mock_run(**kwargs):
+            captured_kwargs.append(kwargs)
+            result = MagicMock()
+            result.get_outputs.return_value = ["done"]
+            return result
+
+        workflow.run = mock_run  # type: ignore[method-assign]
+
+        runtime = UiPathAgentFrameworkRuntime(
+            agent=agent,
+            runtime_id="exec-session",
+            checkpoint_storage=mock_checkpoint_storage,
+        )
+
+        await runtime.execute(input={"messages": []})
+
+        assert len(captured_kwargs) == 1
+        assert captured_kwargs[0]["checkpoint_storage"] is mock_checkpoint_storage
+
+    async def test_hitl_resume_passes_checkpoint_id_and_responses(self):
+        """HITL resume: workflow.run() should receive responses, checkpoint_id, and checkpoint_storage."""
+        worker = RawAgent(_mock_client, name="assistant")
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="resume_wf")
+        workflow.name = "resume_wf"
+
+        mock_checkpoint_storage = MagicMock()
+        mock_checkpoint_storage.get_latest = AsyncMock(return_value=MagicMock(checkpoint_id="cp-123"))
+        captured_kwargs: list[dict[str, Any]] = []
+
+        def mock_run(**kwargs):
+            captured_kwargs.append(kwargs)
+            final = MagicMock()
+            final.get_outputs.return_value = []
+            return _MockAsyncStream(
+                [
+                    _wf_event("executor_invoked", "assistant"),
+                    _wf_event("executor_completed", "assistant"),
+                ],
+                final,
+            )
+
+        workflow.run = mock_run  # type: ignore[method-assign]
+
+        runtime = UiPathAgentFrameworkRuntime(
+            agent=agent,
+            runtime_id="resume-session",
+            checkpoint_storage=mock_checkpoint_storage,
+        )
+        runtime.chat = MagicMock()
+        runtime.chat.map_messages_to_input.return_value = ""
+        runtime.chat.map_streaming_content.return_value = []
+        runtime.chat.close_message.return_value = []
+
+        options = MagicMock()
+        options.resume = True
+        options.breakpoints = None
+
+        responses = {"req-1": "approved"}
+        await _collect_events(runtime)
+
+        # Trigger a resume via stream with responses
+        runtime._resume_responses = responses
+        events = []
+        async for event in runtime._stream_workflow("", "resume_wf"):
+            events.append(event)
+
+        # The second call (resume) should have responses and checkpoint_id
+        assert len(captured_kwargs) == 2
+        resume_call = captured_kwargs[1]
+        assert resume_call["responses"] == responses
+        assert resume_call["checkpoint_id"] == "cp-123"
+        assert resume_call["checkpoint_storage"] is mock_checkpoint_storage
+
+
+# ===========================================================================
+# Session propagation tests (multi-turn conversation history)
+# ===========================================================================
+
+
+class TestSessionPropagation:
+    """Verify that sessions are loaded from storage and propagated to executors."""
+
+    async def test_session_propagated_to_executors_in_stream(self):
+        """Session loaded from resumable_storage should be set on each
+        AgentExecutor before workflow.run(), so inner agents see conversation history."""
+        worker = RawAgent(_mock_client, name="assistant")
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="chat_wf")
+
+        # Create a session with pre-existing state (simulating a prior turn)
+        session = agent.create_session(session_id="test-session")
+        session.state["prior_turn_data"] = "previous conversation"
+
+        # Mock resumable_storage that returns our pre-populated session via KV
+        mock_storage = AsyncMock()
+        mock_storage.get_value = AsyncMock(return_value=session.to_dict())
+        mock_storage.set_value = AsyncMock()
+
+        runtime = UiPathAgentFrameworkRuntime(
+            agent=agent,
+            runtime_id="test-session",
+            resumable_storage=mock_storage,
+        )
+        runtime.chat = MagicMock()
+        runtime.chat.map_messages_to_input.return_value = "hello"
+        runtime.chat.map_streaming_content.return_value = []
+        runtime.chat.close_message.return_value = []
+
+        # Track which session gets set on the executor
+        captured_sessions: list[AgentSession] = []
+
+        def mock_run(**kwargs):
+            # At the point workflow.run() is called, capture the executor's session
+            executor = workflow.executors["assistant"]
+            if isinstance(executor, AgentExecutor):
+                captured_sessions.append(executor._session)
+            final = MagicMock()
+            final.get_outputs.return_value = []
+            return _MockAsyncStream(
+                [
+                    _wf_event("executor_invoked", "assistant"),
+                    _wf_event("executor_completed", "assistant"),
+                ],
+                final,
+            )
+
+        workflow.run = mock_run  # type: ignore[method-assign]
+
+        await _collect_events(runtime)
+
+        # Session should have been captured with prior turn data
+        assert len(captured_sessions) == 1
+        assert captured_sessions[0].state.get("prior_turn_data") == "previous conversation"
+
+        # Session should have been loaded from KV storage
+        mock_storage.get_value.assert_called_once_with("test-session", "session", "data")
+
+        # Session should have been saved after execution
+        mock_storage.set_value.assert_called_once()
+
+    async def test_session_propagated_in_execute_path(self):
+        """Non-streaming execute() should also propagate session to executors."""
+        worker = RawAgent(_mock_client, name="assistant")
+        workflow = WorkflowBuilder(start_executor=worker).build()  # type: ignore[arg-type]
+        agent = WorkflowAgent(workflow=workflow, name="exec_wf")
+
+        session = agent.create_session(session_id="exec-session")
+        session.state["history_key"] = "turn1_data"
+
+        mock_storage = AsyncMock()
+        mock_storage.get_value = AsyncMock(return_value=session.to_dict())
+        mock_storage.set_value = AsyncMock()
+
+        runtime = UiPathAgentFrameworkRuntime(
+            agent=agent,
+            runtime_id="exec-session",
+            resumable_storage=mock_storage,
+        )
+
+        captured_sessions: list[AgentSession] = []
+
+        async def mock_run(**kwargs):
+            executor = workflow.executors["assistant"]
+            if isinstance(executor, AgentExecutor):
+                captured_sessions.append(executor._session)
+            result = MagicMock()
+            result.get_outputs.return_value = ["done"]
+            return result
+
+        workflow.run = mock_run  # type: ignore[method-assign]
+
+        await runtime.execute(input={"messages": []})
+
+        assert len(captured_sessions) == 1
+        assert captured_sessions[0].state.get("history_key") == "turn1_data"
+        mock_storage.set_value.assert_called_once()

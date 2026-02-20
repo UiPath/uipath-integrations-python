@@ -98,7 +98,7 @@ _mock_client = MagicMock()
 
 def _make_runtime(agent: BaseAgent) -> UiPathAgentFrameworkRuntime:
     """Create a runtime with mocked chat mapper."""
-    runtime = UiPathAgentFrameworkRuntime(agent=agent)
+    runtime = UiPathAgentFrameworkRuntime(agent=agent)  # type: ignore[arg-type]
     runtime.chat = MagicMock()
     runtime.chat.map_messages_to_input.return_value = "test"
     runtime.chat.map_streaming_content.return_value = []
@@ -168,7 +168,7 @@ class TestWorkflowStreamingEvents:
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(  # type: ignore[method-assign]
+        workflow.run = MagicMock(  # type: ignore[assignment]
             return_value=_MockAsyncStream(
                 [
                     _wf_event("executor_invoked", "triage"),
@@ -179,7 +179,7 @@ class TestWorkflowStreamingEvents:
                 final,
             )
         )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -209,8 +209,8 @@ class TestWorkflowStreamingEvents:
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(return_value=_MockAsyncStream(wf_events, final))  # type: ignore[method-assign]
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        workflow.run = MagicMock(return_value=_MockAsyncStream(wf_events, final))  # type: ignore[assignment]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -228,7 +228,7 @@ class TestWorkflowStreamingEvents:
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(  # type: ignore[method-assign]
+        workflow.run = MagicMock(  # type: ignore[assignment]
             return_value=_MockAsyncStream(
                 [
                     _wf_event("executor_invoked", "worker"),
@@ -237,7 +237,7 @@ class TestWorkflowStreamingEvents:
                 final,
             )
         )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -323,7 +323,7 @@ class TestToolStateEvents:
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(  # type: ignore[method-assign]
+        workflow.run = MagicMock(  # type: ignore[assignment]
             return_value=_MockAsyncStream(
                 [
                     _wf_event("executor_invoked", "weather_agent"),
@@ -334,7 +334,7 @@ class TestToolStateEvents:
                 final,
             )
         )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -380,9 +380,7 @@ class TestToolStateEvents:
                 ]
             ),
             AgentResponseUpdate(
-                contents=[
-                    Content(type="function_result", call_id="c1", result="42")
-                ]
+                contents=[Content(type="function_result", call_id="c1", result="42")]
             ),
             AgentResponseUpdate(
                 contents=[
@@ -395,9 +393,7 @@ class TestToolStateEvents:
                 ]
             ),
             AgentResponseUpdate(
-                contents=[
-                    Content(type="function_result", call_id="c2", result="found")
-                ]
+                contents=[Content(type="function_result", call_id="c2", result="found")]
             ),
         ]
 
@@ -408,8 +404,8 @@ class TestToolStateEvents:
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(return_value=_MockAsyncStream(wf_events, final))  # type: ignore[method-assign]
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        workflow.run = MagicMock(return_value=_MockAsyncStream(wf_events, final))  # type: ignore[assignment]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -433,7 +429,7 @@ class TestToolStateEvents:
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(  # type: ignore[method-assign]
+        workflow.run = MagicMock(  # type: ignore[assignment]
             return_value=_MockAsyncStream(
                 [
                     _wf_event("executor_invoked", "text_agent"),
@@ -443,7 +439,7 @@ class TestToolStateEvents:
                 final,
             )
         )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -476,9 +472,7 @@ class TestToolStateEvents:
             ]
         )
         result_chunk = AgentResponseUpdate(
-            contents=[
-                Content(type="function_result", call_id="c1", result="42")
-            ]
+            contents=[Content(type="function_result", call_id="c1", result="42")]
         )
 
         # The framework packs sent_messages + yielded_outputs into completed data
@@ -497,10 +491,10 @@ class TestToolStateEvents:
             _wf_event("executor_completed", "agent_x", data=completed_data)
         )
 
-        workflow.run = MagicMock(  # type: ignore[method-assign]
+        workflow.run = MagicMock(  # type: ignore[assignment]
             return_value=_MockAsyncStream(stream_events, final)
         )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -543,16 +537,14 @@ class TestToolStateEvents:
             ]
         )
         result_update = AgentResponseUpdate(
-            contents=[
-                Content(type="function_result", call_id="c1", result="found")
-            ]
+            contents=[Content(type="function_result", call_id="c1", result="found")]
         )
         summary = MagicMock()  # AgentExecutorResponse
         completed_data = [summary, call_update, result_update]
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(  # type: ignore[method-assign]
+        workflow.run = MagicMock(  # type: ignore[assignment]
             return_value=_MockAsyncStream(
                 [
                     # No "output" events — simulating the filter
@@ -562,7 +554,7 @@ class TestToolStateEvents:
                 final,
             )
         )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -601,16 +593,14 @@ class TestToolStateEvents:
             ]
         )
         result_update = AgentResponseUpdate(
-            contents=[
-                Content(type="function_result", call_id="c1", result="42")
-            ]
+            contents=[Content(type="function_result", call_id="c1", result="42")]
         )
         summary = MagicMock()
         completed_data = [summary, call_update, result_update]
 
         final = MagicMock()
         final.get_outputs.return_value = []
-        workflow.run = MagicMock(  # type: ignore[method-assign]
+        workflow.run = MagicMock(  # type: ignore[assignment]
             return_value=_MockAsyncStream(
                 [
                     _wf_event("executor_invoked", "agent_y"),
@@ -622,7 +612,7 @@ class TestToolStateEvents:
                 final,
             )
         )
-        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
+        agent.create_session = MagicMock(return_value=MagicMock())  # type: ignore[assignment]
 
         runtime = _make_runtime(agent)
         events = await _collect_events(runtime)
@@ -664,7 +654,7 @@ class TestCheckpointPropagation:
                 final,
             )
 
-        workflow.run = mock_run  # type: ignore[method-assign]
+        workflow.run = mock_run  # type: ignore[assignment]
 
         runtime = UiPathAgentFrameworkRuntime(
             agent=agent,
@@ -697,7 +687,7 @@ class TestCheckpointPropagation:
             result.get_outputs.return_value = ["done"]
             return result
 
-        workflow.run = mock_run  # type: ignore[method-assign]
+        workflow.run = mock_run  # type: ignore[assignment]
 
         runtime = UiPathAgentFrameworkRuntime(
             agent=agent,
@@ -718,7 +708,9 @@ class TestCheckpointPropagation:
         workflow.name = "resume_wf"
 
         mock_checkpoint_storage = MagicMock()
-        mock_checkpoint_storage.get_latest = AsyncMock(return_value=MagicMock(checkpoint_id="cp-123"))
+        mock_checkpoint_storage.get_latest = AsyncMock(
+            return_value=MagicMock(checkpoint_id="cp-123")
+        )
         captured_kwargs: list[dict[str, Any]] = []
 
         def mock_run(**kwargs):
@@ -733,7 +725,7 @@ class TestCheckpointPropagation:
                 final,
             )
 
-        workflow.run = mock_run  # type: ignore[method-assign]
+        workflow.run = mock_run  # type: ignore[assignment]
 
         runtime = UiPathAgentFrameworkRuntime(
             agent=agent,
@@ -818,16 +810,20 @@ class TestSessionPropagation:
                 final,
             )
 
-        workflow.run = mock_run  # type: ignore[method-assign]
+        workflow.run = mock_run  # type: ignore[assignment]
 
         await _collect_events(runtime)
 
         # Session should have been captured with prior turn data
         assert len(captured_sessions) == 1
-        assert captured_sessions[0].state.get("prior_turn_data") == "previous conversation"
+        assert (
+            captured_sessions[0].state.get("prior_turn_data") == "previous conversation"
+        )
 
         # Session should have been loaded from KV storage
-        mock_storage.get_value.assert_called_once_with("test-session", "session", "data")
+        mock_storage.get_value.assert_called_once_with(
+            "test-session", "session", "data"
+        )
 
         # Session should have been saved after execution
         mock_storage.set_value.assert_called_once()
@@ -861,7 +857,7 @@ class TestSessionPropagation:
             result.get_outputs.return_value = ["done"]
             return result
 
-        workflow.run = mock_run  # type: ignore[method-assign]
+        workflow.run = mock_run  # type: ignore[assignment]
 
         await runtime.execute(input={"messages": []})
 

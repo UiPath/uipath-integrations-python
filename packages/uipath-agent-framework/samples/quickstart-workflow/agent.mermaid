@@ -1,0 +1,9 @@
+flowchart TB
+  __start__(__start__)
+  __end__(__end__)
+  weather_agent(weather_agent)
+  weather_agent_tools(tools)
+  weather_agent --> weather_agent_tools
+  weather_agent_tools --> weather_agent
+  __start__ --> |input|weather_agent
+  weather_agent --> |output|__end__

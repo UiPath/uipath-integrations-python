@@ -210,6 +210,7 @@ class UiPathAgentFrameworkRuntimeFactory:
         UiPathResumableRuntime for resume trigger lifecycle handling.
         """
         storage = await self._get_storage()
+        assert storage.checkpoint_storage is not None
         checkpoint_storage = ScopedCheckpointStorage(
             storage.checkpoint_storage, runtime_id
         )

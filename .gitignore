@@ -179,13 +179,14 @@ cython_debug/
 **/__uipath/
 .claude/settings.local.json
 
-/.vscode/launch.json
+.vscode/
 
 playground.py
 
 # Samples generated files
 **/samples/**/.agent/
 **/samples/**/.claude/
+**/samples/**/.vscode/
 **/samples/**/AGENTS.md
 **/samples/**/CLAUDE.md
 **/samples/**/bindings.json

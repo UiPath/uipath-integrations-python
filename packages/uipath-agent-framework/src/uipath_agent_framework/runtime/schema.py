@@ -202,7 +202,7 @@ def _is_handoff_tool(tool_name: str, executor_ids: set[str]) -> bool:
     """Check if a tool is a handoff tool by matching against executor IDs."""
     if not tool_name.startswith("handoff_to_"):
         return False
-    target = tool_name[len("handoff_to_"):]
+    target = tool_name[len("handoff_to_") :]
     return target in executor_ids
 
 
@@ -222,11 +222,11 @@ def _add_executor_tool_nodes(
     if not tools:
         return
 
-    tool_names = [get_tool_name(t) for t in tools]
-    tool_names = [n for n in tool_names if n]
-
-    # Filter out handoff tools — they are represented as edges, not tool nodes
-    tool_names = [n for n in tool_names if not _is_handoff_tool(n, executor_ids)]
+    tool_names: list[str] = [
+        n
+        for t in tools
+        if (n := get_tool_name(t)) is not None and not _is_handoff_tool(n, executor_ids)
+    ]
 
     if tool_names:
         tools_node_id = f"{executor_id}_tools"

@@ -32,12 +32,12 @@ from uipath.runtime.events import (
 from uipath.runtime.schema import UiPathRuntimeSchema
 
 from .breakpoints import (
+    AgentInterruptException,
     create_breakpoint_result,
     inject_breakpoint_middleware,
     remove_breakpoint_middleware,
 )
 from .errors import UiPathAgentFrameworkErrorCode, UiPathAgentFrameworkRuntimeError
-from .interrupt import AgentInterruptException
 from .messages import AgentFrameworkChatMessagesMapper
 from .resumable_storage import ScopedCheckpointStorage, SqliteResumableStorage
 from .schema import get_agent_graph, get_entrypoints_schema
@@ -61,8 +61,10 @@ class UiPathAgentFrameworkRuntime:
         self._checkpoint_storage = checkpoint_storage
         self._resumable_storage = resumable_storage
         self._resume_responses: dict[str, Any] | None = None
-        self._breakpoint_skip_nodes: set[str] = set()
+        self._breakpoint_skip_nodes: dict[str, int] = {}
+        self._last_breakpoint_node: str | None = None
         self._last_checkpoint_id: str | None = None
+        self._resumed_from_checkpoint_id: str | None = None
 
     # ------------------------------------------------------------------
     # Checkpoint helpers
@@ -78,18 +80,24 @@ class UiPathAgentFrameworkRuntime:
         )
         return checkpoint.checkpoint_id if checkpoint else None
 
-    async def _save_breakpoint_state(self, original_input: str) -> None:
+    async def _save_breakpoint_state(
+        self, original_input: str, checkpoint_id: str | None = None
+    ) -> None:
         """Persist breakpoint state to KV storage for resume.
 
-        The skip_nodes set accumulates across resumes so that concurrent
-        executors breakpointed in the same superstep are all skipped on
-        subsequent resumes (prevents the infinite-cycle bug).
+        skip_nodes is a dict mapping executor_id → pass-through count.
+        Each count records how many times the executor must be allowed
+        to run before re-arming its breakpoint.  The count is incremented
+        every time the same executor hits a breakpoint again (cyclic
+        graphs, GroupChat orchestrators).
         """
         if not self._resumable_storage:
             return
-        checkpoint_id = await self._get_latest_checkpoint_id()
+        if checkpoint_id is None:
+            checkpoint_id = await self._get_latest_checkpoint_id()
         state = {
-            "skip_nodes": list(self._breakpoint_skip_nodes),
+            "skip_nodes": dict(self._breakpoint_skip_nodes),
+            "last_breakpoint_node": self._last_breakpoint_node,
             "checkpoint_id": checkpoint_id,
             "original_input": original_input,
         }
@@ -105,10 +113,22 @@ class UiPathAgentFrameworkRuntime:
             self.runtime_id, "breakpoint", "state"
         )
         if state and isinstance(state, dict):
-            self._breakpoint_skip_nodes = set(state.get("skip_nodes", []))
+            self._breakpoint_skip_nodes = dict(state.get("skip_nodes", {}))
+            self._last_breakpoint_node = state.get("last_breakpoint_node")
             self._last_checkpoint_id = state.get("checkpoint_id")
             return state
         return None
+
+    def _get_breakpoint_skip(self) -> dict[str, int]:
+        """Get the skip_nodes dict for breakpoint injection.
+
+        Returns accumulated skip counts.  The counts are reset whenever
+        a checkpoint advancement is detected (see the breakpoint handlers
+        in execute / _stream_workflow) so they stay correct regardless
+        of whether checkpoints advance per-executor or stay at a coarser
+        granularity.
+        """
+        return dict(self._breakpoint_skip_nodes)
 
     # ------------------------------------------------------------------
     # Session helpers (multi-turn conversation history)
@@ -171,6 +191,7 @@ class UiPathAgentFrameworkRuntime:
 
                 if self._resume_responses:
                     checkpoint_id = await self._get_latest_checkpoint_id()
+                    self._resumed_from_checkpoint_id = checkpoint_id
                     result = await workflow.run(
                         responses=self._resume_responses,
                         checkpoint_id=checkpoint_id,
@@ -178,6 +199,7 @@ class UiPathAgentFrameworkRuntime:
                     )
                     self._resume_responses = None
                 else:
+                    self._resumed_from_checkpoint_id = None
                     result = await workflow.run(
                         message="",
                         checkpoint_storage=self._checkpoint_storage,
@@ -186,12 +208,13 @@ class UiPathAgentFrameworkRuntime:
                 # Breakpoint resume: restore from checkpoint
                 bp_state = await self._load_breakpoint_state()
                 checkpoint_id = self._last_checkpoint_id
+                self._resumed_from_checkpoint_id = checkpoint_id
                 original_input = bp_state.get("original_input", "") if bp_state else ""
 
-                # Inject breakpoints, skipping all previously-resumed executors
+                # Inject breakpoints with accumulated skip counts
                 if options and options.breakpoints:
                     inject_breakpoint_middleware(
-                        self.agent, options.breakpoints, self._breakpoint_skip_nodes
+                        self.agent, options.breakpoints, self._get_breakpoint_skip()
                     )
 
                 if checkpoint_id:
@@ -206,6 +229,7 @@ class UiPathAgentFrameworkRuntime:
                     )
             else:
                 # Fresh run: load session for multi-turn conversation history
+                self._resumed_from_checkpoint_id = None
                 session = await self._load_session()
                 self._apply_session_to_executors(session)
 
@@ -232,9 +256,22 @@ class UiPathAgentFrameworkRuntime:
                     if isinstance(e.suspend_value, dict)
                     else ""
                 )
-                self._breakpoint_skip_nodes.add(node_id)
+                # Detect checkpoint advancement and reset counts if needed
+                latest_checkpoint = await self._get_latest_checkpoint_id()
+                if (
+                    latest_checkpoint
+                    and self._resumed_from_checkpoint_id
+                    and latest_checkpoint != self._resumed_from_checkpoint_id
+                ):
+                    self._breakpoint_skip_nodes = {}
+                self._breakpoint_skip_nodes[node_id] = (
+                    self._breakpoint_skip_nodes.get(node_id, 0) + 1
+                )
+                self._last_breakpoint_node = node_id
                 original_input = self._prepare_input(input) if not is_resuming else ""
-                await self._save_breakpoint_state(original_input)
+                await self._save_breakpoint_state(
+                    original_input, checkpoint_id=latest_checkpoint
+                )
                 return create_breakpoint_result(e)
             return self._create_suspended_result(e)
         except Exception as e:
@@ -271,10 +308,10 @@ class UiPathAgentFrameworkRuntime:
                 session = await self._load_session()
                 self._apply_session_to_executors(session)
 
-                # Inject breakpoints, skipping all previously-resumed executors
+                # Inject breakpoints — skip strategy depends on resume mode
                 if options and options.breakpoints:
                     inject_breakpoint_middleware(
-                        self.agent, options.breakpoints, self._breakpoint_skip_nodes
+                        self.agent, options.breakpoints, self._get_breakpoint_skip()
                     )
 
             else:
@@ -323,6 +360,7 @@ class UiPathAgentFrameworkRuntime:
         if self._resume_responses:
             # HITL resume: pass responses to workflow with checkpoint
             checkpoint_id = await self._get_latest_checkpoint_id()
+            self._resumed_from_checkpoint_id = checkpoint_id
             response_stream = workflow.run(
                 responses=self._resume_responses,
                 checkpoint_id=checkpoint_id,
@@ -333,6 +371,7 @@ class UiPathAgentFrameworkRuntime:
         elif self._last_checkpoint_id:
             # Breakpoint resume with checkpoint: restore and continue
             checkpoint_id = self._last_checkpoint_id
+            self._resumed_from_checkpoint_id = checkpoint_id
             self._last_checkpoint_id = None
             response_stream = workflow.run(
                 checkpoint_id=checkpoint_id,
@@ -341,6 +380,7 @@ class UiPathAgentFrameworkRuntime:
             )
         else:
             # Fresh run (or breakpoint resume without checkpoint — uses original_input)
+            self._resumed_from_checkpoint_id = None
             response_stream = workflow.run(
                 message=user_input,
                 checkpoint_storage=self._checkpoint_storage,
@@ -375,7 +415,10 @@ class UiPathAgentFrameworkRuntime:
                     request_info_map[event.request_id] = event.data
                 elif event.type == "executor_invoked":
                     # Skip the duplicate for the start executor we already emitted
-                    if pre_emitted_executor and event.executor_id == pre_emitted_executor:
+                    if (
+                        pre_emitted_executor
+                        and event.executor_id == pre_emitted_executor
+                    ):
                         pre_emitted_executor = None
                         continue
                     yield UiPathRuntimeStateEvent(
@@ -387,7 +430,10 @@ class UiPathAgentFrameworkRuntime:
                     # When output events were filtered by the workflow (e.g.
                     # GroupChat where participants are not output executors),
                     # extract tool state events from the completed data instead.
-                    if event.executor_id not in executors_with_tool_outputs:
+                    if (
+                        event.executor_id
+                        and event.executor_id not in executors_with_tool_outputs
+                    ):
                         for tool_event in self._extract_tool_state_events(
                             event.data, event.executor_id
                         ):
@@ -412,7 +458,10 @@ class UiPathAgentFrameworkRuntime:
                         yield UiPathRuntimeMessageEvent(payload=msg_event)
 
                 # Detect workflow suspension via state
-                if event.type == "status" and str(event.state) == "IDLE_WITH_PENDING_REQUESTS":
+                if (
+                    event.type == "status"
+                    and str(event.state) == "IDLE_WITH_PENDING_REQUESTS"
+                ):
                     is_suspended = True
         except AgentInterruptException as e:
             # Breakpoint or HITL interrupt fired inside an inner agent
@@ -434,8 +483,21 @@ class UiPathAgentFrameworkRuntime:
                     if isinstance(e.suspend_value, dict)
                     else ""
                 )
-                self._breakpoint_skip_nodes.add(node_id)
-                await self._save_breakpoint_state(user_input)
+                # Detect checkpoint advancement and reset counts if needed
+                latest_checkpoint = await self._get_latest_checkpoint_id()
+                if (
+                    latest_checkpoint
+                    and self._resumed_from_checkpoint_id
+                    and latest_checkpoint != self._resumed_from_checkpoint_id
+                ):
+                    self._breakpoint_skip_nodes = {}
+                self._breakpoint_skip_nodes[node_id] = (
+                    self._breakpoint_skip_nodes.get(node_id, 0) + 1
+                )
+                self._last_breakpoint_node = node_id
+                await self._save_breakpoint_state(
+                    user_input, checkpoint_id=latest_checkpoint
+                )
                 yield create_breakpoint_result(e)
             else:
                 yield self._create_suspended_result(e)

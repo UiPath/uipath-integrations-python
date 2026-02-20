@@ -1,0 +1,24 @@
+flowchart TB
+  __start__(__start__)
+  __end__(__end__)
+  triage(triage)
+  billing_agent(billing_agent)
+  tech_agent(tech_agent)
+  returns_agent(returns_agent)
+  __start__ --> |input|triage
+  triage --> billing_agent
+  triage --> tech_agent
+  triage --> returns_agent
+  billing_agent --> triage
+  billing_agent --> tech_agent
+  billing_agent --> returns_agent
+  tech_agent --> triage
+  tech_agent --> billing_agent
+  tech_agent --> returns_agent
+  returns_agent --> triage
+  returns_agent --> billing_agent
+  returns_agent --> tech_agent
+  triage --> |output|__end__
+  billing_agent --> |output|__end__
+  tech_agent --> |output|__end__
+  returns_agent --> |output|__end__

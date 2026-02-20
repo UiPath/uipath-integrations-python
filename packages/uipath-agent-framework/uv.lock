@@ -41,6 +41,18 @@ wheels = [
 ]
 
 [[package]]
+name = "agent-framework-orchestrations"
+version = "1.0.0b260212"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "agent-framework-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/42/bf/9a1f62bf243157f5ce20e26b1549bdc563334521a1c3155b7eb4093f5b47/agent_framework_orchestrations-1.0.0b260212.tar.gz", hash = "sha256:31c215af8fe7cf954c17306113137df945aabae35e9f3c89052b6983e39516a8", size = 53522, upload-time = "2026-02-13T00:37:58.163Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/87/7af9ea63943555dd133a9aaf3d056de4763cc2e91986763167a2f4dff6e0/agent_framework_orchestrations-1.0.0b260212-py3-none-any.whl", hash = "sha256:c10ed851a33ce46de8ee50f20a08b1db2604ef0a14739a23b42ba1279ddd52d1", size = 59721, upload-time = "2026-02-13T00:37:51.783Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2448,10 +2460,11 @@ wheels = [
 
 [[package]]
 name = "uipath-agent-framework"
-version = "0.0.4"
+version = "0.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "agent-framework-core" },
+    { name = "agent-framework-orchestrations" },
     { name = "aiosqlite" },
     { name = "openinference-instrumentation-agent-framework" },
     { name = "uipath" },
@@ -2479,6 +2492,7 @@ dev = [
 requires-dist = [
     { name = "agent-framework-anthropic", marker = "extra == 'anthropic'", specifier = ">=1.0.0b260212" },
     { name = "agent-framework-core", specifier = ">=1.0.0b260212" },
+    { name = "agent-framework-orchestrations", specifier = ">=1.0.0b260212" },
     { name = "aiosqlite", specifier = ">=0.20.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.43.0" },
     { name = "openinference-instrumentation-agent-framework", specifier = ">=0.1.0" },

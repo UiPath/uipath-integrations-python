@@ -7,7 +7,6 @@ from agent_framework import WorkflowCheckpoint
 
 from uipath_agent_framework.runtime.resumable_storage import (
     ScopedCheckpointStorage,
-    SqliteCheckpointStorage,
     SqliteResumableStorage,
 )
 
@@ -62,6 +61,7 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             checkpoint = _make_checkpoint(checkpoint_id="cp-1")
             await cs.save(checkpoint)
@@ -81,10 +81,11 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             try:
                 await cs.load("nonexistent")
-                assert False, "Should have raised"
+                raise AssertionError("Should have raised")
             except Exception:
                 pass
             await storage.dispose()
@@ -96,6 +97,7 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             cp1 = _make_checkpoint(
                 checkpoint_id="cp-old", timestamp="2026-01-01T00:00:00+00:00"
@@ -118,6 +120,7 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             latest = await cs.get_latest(workflow_name="nonexistent")
             assert latest is None
@@ -130,6 +133,7 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             cp = _make_checkpoint(checkpoint_id="cp-del")
             await cs.save(cp)
@@ -149,16 +153,11 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
-            cp1 = _make_checkpoint(
-                workflow_name="wf_a", checkpoint_id="cp-a1"
-            )
-            cp2 = _make_checkpoint(
-                workflow_name="wf_a", checkpoint_id="cp-a2"
-            )
-            cp3 = _make_checkpoint(
-                workflow_name="wf_b", checkpoint_id="cp-b1"
-            )
+            cp1 = _make_checkpoint(workflow_name="wf_a", checkpoint_id="cp-a1")
+            cp2 = _make_checkpoint(workflow_name="wf_a", checkpoint_id="cp-a2")
+            cp3 = _make_checkpoint(workflow_name="wf_b", checkpoint_id="cp-b1")
             await cs.save(cp1)
             await cs.save(cp2)
             await cs.save(cp3)
@@ -179,16 +178,11 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
-            cp1 = _make_checkpoint(
-                workflow_name="wf_x", checkpoint_id="cp-x1"
-            )
-            cp2 = _make_checkpoint(
-                workflow_name="wf_x", checkpoint_id="cp-x2"
-            )
-            cp3 = _make_checkpoint(
-                workflow_name="wf_y", checkpoint_id="cp-y1"
-            )
+            cp1 = _make_checkpoint(workflow_name="wf_x", checkpoint_id="cp-x1")
+            cp2 = _make_checkpoint(workflow_name="wf_x", checkpoint_id="cp-x2")
+            cp3 = _make_checkpoint(workflow_name="wf_y", checkpoint_id="cp-y1")
             await cs.save(cp1)
             await cs.save(cp2)
             await cs.save(cp3)
@@ -204,6 +198,7 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             cp1 = _make_checkpoint(checkpoint_id="cp-ow")
             cp1.state = {"version": 1}
@@ -225,6 +220,7 @@ class TestSqliteCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             cp = _make_checkpoint(checkpoint_id="cp-persist")
             await cs.save(cp)
@@ -234,6 +230,7 @@ class TestSqliteCheckpointStorage:
             storage2 = SqliteResumableStorage(db_path)
             await storage2.setup()
             cs2 = storage2.checkpoint_storage
+            assert cs2 is not None
 
             loaded = await cs2.load("cp-persist")
             assert loaded.checkpoint_id == "cp-persist"
@@ -250,16 +247,13 @@ class TestScopedCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             scoped_a = ScopedCheckpointStorage(cs, "runtime-a")
             scoped_b = ScopedCheckpointStorage(cs, "runtime-b")
 
-            cp_a = _make_checkpoint(
-                workflow_name="my_wf", checkpoint_id="cp-a"
-            )
-            cp_b = _make_checkpoint(
-                workflow_name="my_wf", checkpoint_id="cp-b"
-            )
+            cp_a = _make_checkpoint(workflow_name="my_wf", checkpoint_id="cp-a")
+            cp_b = _make_checkpoint(workflow_name="my_wf", checkpoint_id="cp-b")
 
             await scoped_a.save(cp_a)
             await scoped_b.save(cp_b)
@@ -282,6 +276,7 @@ class TestScopedCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             scoped_a = ScopedCheckpointStorage(cs, "rt-a")
             scoped_b = ScopedCheckpointStorage(cs, "rt-b")
@@ -316,11 +311,10 @@ class TestScopedCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             scoped = ScopedCheckpointStorage(cs, "rt-x")
-            cp = _make_checkpoint(
-                workflow_name="wf", checkpoint_id="cp-global"
-            )
+            cp = _make_checkpoint(workflow_name="wf", checkpoint_id="cp-global")
             await scoped.save(cp)
 
             # Load from any scope
@@ -339,16 +333,13 @@ class TestScopedCheckpointStorage:
             storage = SqliteResumableStorage(db_path)
             await storage.setup()
             cs = storage.checkpoint_storage
+            assert cs is not None
 
             scoped_a = ScopedCheckpointStorage(cs, "rt-a")
             scoped_b = ScopedCheckpointStorage(cs, "rt-b")
 
-            cp_a = _make_checkpoint(
-                workflow_name="wf", checkpoint_id="cp-a"
-            )
-            cp_b = _make_checkpoint(
-                workflow_name="wf", checkpoint_id="cp-b"
-            )
+            cp_a = _make_checkpoint(workflow_name="wf", checkpoint_id="cp-a")
+            cp_b = _make_checkpoint(workflow_name="wf", checkpoint_id="cp-b")
 
             await scoped_a.save(cp_a)
             await scoped_b.save(cp_b)

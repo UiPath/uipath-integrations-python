@@ -142,13 +142,9 @@ class SqliteResumableStorage:
                 )
             await conn.commit()
 
-        logger.debug(
-            "Saved %d triggers for runtime_id=%s", len(triggers), runtime_id
-        )
+        logger.debug("Saved %d triggers for runtime_id=%s", len(triggers), runtime_id)
 
-    async def get_triggers(
-        self, runtime_id: str
-    ) -> list[UiPathResumeTrigger] | None:
+    async def get_triggers(self, runtime_id: str) -> list[UiPathResumeTrigger] | None:
         """Retrieve all resume triggers for this runtime_id."""
         conn = await self._get_conn()
         async with self._lock:
@@ -214,9 +210,7 @@ class SqliteResumableStorage:
             )
             await conn.commit()
 
-    async def get_value(
-        self, runtime_id: str, namespace: str, key: str
-    ) -> Any:
+    async def get_value(self, runtime_id: str, namespace: str, key: str) -> Any:
         """Get arbitrary key-value pair scoped by runtime_id + namespace."""
         conn = await self._get_conn()
         async with self._lock:
@@ -368,7 +362,7 @@ class SqliteCheckpointStorage:
             row = await cursor.fetchone()
 
         if not row:
-            from agent_framework._workflows._checkpoint import (
+            from agent_framework._workflows._checkpoint import (  # type: ignore[attr-defined]
                 WorkflowCheckpointException,
             )
 
@@ -380,9 +374,7 @@ class SqliteCheckpointStorage:
         decoded = decode_checkpoint_value(encoded)
         return WorkflowCheckpoint.from_dict(decoded)
 
-    async def list_checkpoints(
-        self, *, workflow_name: str
-    ) -> list[WorkflowCheckpoint]:
+    async def list_checkpoints(self, *, workflow_name: str) -> list[WorkflowCheckpoint]:
         """List checkpoint objects for a given workflow name."""
         conn = await self._storage._get_conn()
         async with self._storage._lock:
@@ -410,9 +402,7 @@ class SqliteCheckpointStorage:
             await conn.commit()
             return cursor.rowcount > 0
 
-    async def get_latest(
-        self, *, workflow_name: str
-    ) -> WorkflowCheckpoint | None:
+    async def get_latest(self, *, workflow_name: str) -> WorkflowCheckpoint | None:
         """Get the latest checkpoint for a given workflow name."""
         conn = await self._storage._get_conn()
         async with self._storage._lock:
@@ -429,9 +419,7 @@ class SqliteCheckpointStorage:
         decoded = decode_checkpoint_value(encoded)
         return WorkflowCheckpoint.from_dict(decoded)
 
-    async def list_checkpoint_ids(
-        self, *, workflow_name: str
-    ) -> list[str]:
+    async def list_checkpoint_ids(self, *, workflow_name: str) -> list[str]:
         """List checkpoint IDs for a given workflow name."""
         conn = await self._storage._get_conn()
         async with self._storage._lock:
@@ -452,9 +440,7 @@ class ScopedCheckpointStorage:
     ``{runtime_id}::``.
     """
 
-    def __init__(
-        self, delegate: SqliteCheckpointStorage, runtime_id: str
-    ) -> None:
+    def __init__(self, delegate: SqliteCheckpointStorage, runtime_id: str) -> None:
         self._delegate = delegate
         self._scope = f"{runtime_id}::"
 
@@ -470,9 +456,7 @@ class ScopedCheckpointStorage:
         """Load by checkpoint_id (globally unique)."""
         return await self._delegate.load(checkpoint_id)
 
-    async def list_checkpoints(
-        self, *, workflow_name: str
-    ) -> list[WorkflowCheckpoint]:
+    async def list_checkpoints(self, *, workflow_name: str) -> list[WorkflowCheckpoint]:
         """List checkpoints with scoped workflow_name."""
         return await self._delegate.list_checkpoints(
             workflow_name=self._scoped_name(workflow_name)
@@ -482,17 +466,13 @@ class ScopedCheckpointStorage:
         """Delete by checkpoint_id (globally unique)."""
         return await self._delegate.delete(checkpoint_id)
 
-    async def get_latest(
-        self, *, workflow_name: str
-    ) -> WorkflowCheckpoint | None:
+    async def get_latest(self, *, workflow_name: str) -> WorkflowCheckpoint | None:
         """Get latest checkpoint with scoped workflow_name."""
         return await self._delegate.get_latest(
             workflow_name=self._scoped_name(workflow_name)
         )
 
-    async def list_checkpoint_ids(
-        self, *, workflow_name: str
-    ) -> list[str]:
+    async def list_checkpoint_ids(self, *, workflow_name: str) -> list[str]:
         """List checkpoint IDs with scoped workflow_name."""
         return await self._delegate.list_checkpoint_ids(
             workflow_name=self._scoped_name(workflow_name)

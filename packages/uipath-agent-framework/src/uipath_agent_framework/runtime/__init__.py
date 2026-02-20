@@ -6,8 +6,8 @@ from uipath.runtime import (
     UiPathRuntimeFactoryRegistry,
 )
 
+from .breakpoints import AgentInterruptException, BreakpointMiddleware
 from .factory import UiPathAgentFrameworkRuntimeFactory
-from .interrupt import AgentInterruptException, BreakpointMiddleware
 from .resumable_storage import (
     ScopedCheckpointStorage,
     SqliteCheckpointStorage,

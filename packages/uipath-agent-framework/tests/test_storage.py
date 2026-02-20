@@ -1,170 +1,352 @@
-"""Tests for SQLite session store."""
+"""Tests for SQLite checkpoint storage."""
 
 import os
 import tempfile
 
-from uipath_agent_framework.runtime.storage import SqliteSessionStore
+from agent_framework import WorkflowCheckpoint
+
+from uipath_agent_framework.runtime.resumable_storage import (
+    ScopedCheckpointStorage,
+    SqliteResumableStorage,
+)
 
 
-class TestSqliteSessionStore:
-    """Tests for SqliteSessionStore."""
+def _make_checkpoint(
+    workflow_name: str = "test_workflow",
+    checkpoint_id: str | None = None,
+    timestamp: str | None = None,
+) -> WorkflowCheckpoint:
+    """Create a WorkflowCheckpoint for testing."""
+    return WorkflowCheckpoint(
+        workflow_name=workflow_name,
+        graph_signature_hash="abc123",
+        checkpoint_id=checkpoint_id or f"cp-{id(object())}",
+        timestamp=timestamp or "2026-01-01T00:00:00+00:00",
+        state={"key": "value"},
+        messages={},
+        pending_request_info_events={},
+        iteration_count=1,
+        metadata={"test": True},
+    )
+
+
+class TestSqliteCheckpointStorage:
+    """Tests for SqliteCheckpointStorage via SqliteResumableStorage."""
 
     async def test_setup_creates_db_file(self):
-        """Setup creates the SQLite database file."""
+        """Setup creates the SQLite database file with checkpoints table."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
-            await store.setup()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
 
             assert os.path.exists(db_path)
-            await store.dispose()
+            assert storage.checkpoint_storage is not None
+            await storage.dispose()
 
     async def test_setup_creates_nested_directories(self):
         """Setup creates parent directories if they don't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "nested", "dir", "test.db")
-            store = SqliteSessionStore(db_path)
-            await store.setup()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
 
             assert os.path.exists(db_path)
-            await store.dispose()
+            await storage.dispose()
 
-    async def test_load_returns_none_for_missing_session(self):
-        """Loading a non-existent session returns None."""
+    async def test_save_and_load_checkpoint(self):
+        """Saved checkpoint can be loaded back."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
-            await store.setup()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
 
-            result = await store.load_session("nonexistent")
-            assert result is None
-            await store.dispose()
+            checkpoint = _make_checkpoint(checkpoint_id="cp-1")
+            await cs.save(checkpoint)
+            loaded = await cs.load("cp-1")
 
-    async def test_save_and_load_session(self):
-        """Saved session data can be loaded back."""
+            assert loaded.checkpoint_id == "cp-1"
+            assert loaded.workflow_name == "test_workflow"
+            assert loaded.graph_signature_hash == "abc123"
+            assert loaded.state == {"key": "value"}
+            assert loaded.metadata == {"test": True}
+            await storage.dispose()
+
+    async def test_load_nonexistent_raises(self):
+        """Loading a non-existent checkpoint raises an exception."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
-            await store.setup()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
 
-            session_data = {
-                "session_id": "runtime-123",
-                "state": {"memory": {"messages": [{"role": "user", "content": "hi"}]}},
-            }
-            await store.save_session("runtime-123", session_data)
-            loaded = await store.load_session("runtime-123")
+            try:
+                await cs.load("nonexistent")
+                raise AssertionError("Should have raised")
+            except Exception:
+                pass
+            await storage.dispose()
 
-            assert loaded == session_data
-            await store.dispose()
-
-    async def test_save_overwrites_existing_session(self):
-        """Saving with the same runtime_id overwrites the previous data."""
+    async def test_get_latest_returns_most_recent(self):
+        """get_latest returns the checkpoint with the most recent timestamp."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
-            await store.setup()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
 
-            await store.save_session("rt-1", {"version": 1})
-            await store.save_session("rt-1", {"version": 2})
-            loaded = await store.load_session("rt-1")
+            cp1 = _make_checkpoint(
+                checkpoint_id="cp-old", timestamp="2026-01-01T00:00:00+00:00"
+            )
+            cp2 = _make_checkpoint(
+                checkpoint_id="cp-new", timestamp="2026-01-02T00:00:00+00:00"
+            )
+            await cs.save(cp1)
+            await cs.save(cp2)
 
-            assert loaded == {"version": 2}
-            await store.dispose()
+            latest = await cs.get_latest(workflow_name="test_workflow")
+            assert latest is not None
+            assert latest.checkpoint_id == "cp-new"
+            await storage.dispose()
 
-    async def test_sessions_isolated_by_runtime_id(self):
-        """Different runtime_ids have independent sessions."""
+    async def test_get_latest_returns_none_for_empty(self):
+        """get_latest returns None when no checkpoints exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
-            await store.setup()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
 
-            await store.save_session("rt-a", {"agent": "alpha"})
-            await store.save_session("rt-b", {"agent": "beta"})
+            latest = await cs.get_latest(workflow_name="nonexistent")
+            assert latest is None
+            await storage.dispose()
 
-            assert await store.load_session("rt-a") == {"agent": "alpha"}
-            assert await store.load_session("rt-b") == {"agent": "beta"}
-            assert await store.load_session("rt-c") is None
-            await store.dispose()
+    async def test_delete_checkpoint(self):
+        """Deleted checkpoint is no longer loadable."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
+
+            cp = _make_checkpoint(checkpoint_id="cp-del")
+            await cs.save(cp)
+
+            result = await cs.delete("cp-del")
+            assert result is True
+
+            # Verify it's gone
+            result = await cs.delete("cp-del")
+            assert result is False
+            await storage.dispose()
+
+    async def test_list_checkpoints_filtered_by_workflow_name(self):
+        """list_checkpoints only returns checkpoints for the given workflow."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
+
+            cp1 = _make_checkpoint(workflow_name="wf_a", checkpoint_id="cp-a1")
+            cp2 = _make_checkpoint(workflow_name="wf_a", checkpoint_id="cp-a2")
+            cp3 = _make_checkpoint(workflow_name="wf_b", checkpoint_id="cp-b1")
+            await cs.save(cp1)
+            await cs.save(cp2)
+            await cs.save(cp3)
+
+            wf_a_cps = await cs.list_checkpoints(workflow_name="wf_a")
+            assert len(wf_a_cps) == 2
+            assert {cp.checkpoint_id for cp in wf_a_cps} == {"cp-a1", "cp-a2"}
+
+            wf_b_cps = await cs.list_checkpoints(workflow_name="wf_b")
+            assert len(wf_b_cps) == 1
+            assert wf_b_cps[0].checkpoint_id == "cp-b1"
+            await storage.dispose()
+
+    async def test_list_checkpoint_ids(self):
+        """list_checkpoint_ids returns IDs filtered by workflow_name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
+
+            cp1 = _make_checkpoint(workflow_name="wf_x", checkpoint_id="cp-x1")
+            cp2 = _make_checkpoint(workflow_name="wf_x", checkpoint_id="cp-x2")
+            cp3 = _make_checkpoint(workflow_name="wf_y", checkpoint_id="cp-y1")
+            await cs.save(cp1)
+            await cs.save(cp2)
+            await cs.save(cp3)
+
+            ids = await cs.list_checkpoint_ids(workflow_name="wf_x")
+            assert set(ids) == {"cp-x1", "cp-x2"}
+            await storage.dispose()
+
+    async def test_save_overwrites_existing_checkpoint(self):
+        """Saving with the same checkpoint_id overwrites the previous data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
+
+            cp1 = _make_checkpoint(checkpoint_id="cp-ow")
+            cp1.state = {"version": 1}
+            await cs.save(cp1)
+
+            cp2 = _make_checkpoint(checkpoint_id="cp-ow")
+            cp2.state = {"version": 2}
+            await cs.save(cp2)
+
+            loaded = await cs.load("cp-ow")
+            assert loaded.state == {"version": 2}
+            await storage.dispose()
 
     async def test_dispose_allows_reconnect(self):
         """After dispose, the store can be set up again and data persists."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
 
-            store = SqliteSessionStore(db_path)
-            await store.setup()
-            await store.save_session("rt-1", {"data": "persisted"})
-            await store.dispose()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
+
+            cp = _make_checkpoint(checkpoint_id="cp-persist")
+            await cs.save(cp)
+            await storage.dispose()
 
             # Reconnect to the same DB
-            store2 = SqliteSessionStore(db_path)
-            await store2.setup()
-            loaded = await store2.load_session("rt-1")
+            storage2 = SqliteResumableStorage(db_path)
+            await storage2.setup()
+            cs2 = storage2.checkpoint_storage
+            assert cs2 is not None
 
-            assert loaded == {"data": "persisted"}
-            await store2.dispose()
+            loaded = await cs2.load("cp-persist")
+            assert loaded.checkpoint_id == "cp-persist"
+            await storage2.dispose()
 
-    async def test_auto_setup_on_load(self):
-        """Loading without explicit setup triggers auto-setup."""
+
+class TestScopedCheckpointStorage:
+    """Tests for ScopedCheckpointStorage prefix isolation."""
+
+    async def test_scoped_storage_isolates_by_runtime_id(self):
+        """Different runtime scopes produce isolated checkpoint namespaces."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
 
-            # No explicit setup() call
-            result = await store.load_session("any-id")
-            assert result is None
-            await store.dispose()
+            scoped_a = ScopedCheckpointStorage(cs, "runtime-a")
+            scoped_b = ScopedCheckpointStorage(cs, "runtime-b")
 
-    async def test_auto_setup_on_save(self):
-        """Saving without explicit setup triggers auto-setup."""
+            cp_a = _make_checkpoint(workflow_name="my_wf", checkpoint_id="cp-a")
+            cp_b = _make_checkpoint(workflow_name="my_wf", checkpoint_id="cp-b")
+
+            await scoped_a.save(cp_a)
+            await scoped_b.save(cp_b)
+
+            # Each scope sees only its own checkpoints
+            a_cps = await scoped_a.list_checkpoints(workflow_name="my_wf")
+            b_cps = await scoped_b.list_checkpoints(workflow_name="my_wf")
+
+            assert len(a_cps) == 1
+            assert a_cps[0].checkpoint_id == "cp-a"
+
+            assert len(b_cps) == 1
+            assert b_cps[0].checkpoint_id == "cp-b"
+            await storage.dispose()
+
+    async def test_scoped_get_latest_respects_scope(self):
+        """get_latest only returns checkpoints within the runtime scope."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
 
-            # No explicit setup() call
-            await store.save_session("rt-1", {"key": "value"})
-            loaded = await store.load_session("rt-1")
+            scoped_a = ScopedCheckpointStorage(cs, "rt-a")
+            scoped_b = ScopedCheckpointStorage(cs, "rt-b")
 
-            assert loaded == {"key": "value"}
-            await store.dispose()
+            cp_a = _make_checkpoint(
+                workflow_name="wf",
+                checkpoint_id="cp-a",
+                timestamp="2026-01-01T00:00:00+00:00",
+            )
+            cp_b = _make_checkpoint(
+                workflow_name="wf",
+                checkpoint_id="cp-b",
+                timestamp="2026-01-02T00:00:00+00:00",
+            )
 
-    async def test_complex_session_data_roundtrip(self):
-        """Complex nested session data survives serialization roundtrip."""
+            await scoped_a.save(cp_a)
+            await scoped_b.save(cp_b)
+
+            latest_a = await scoped_a.get_latest(workflow_name="wf")
+            assert latest_a is not None
+            assert latest_a.checkpoint_id == "cp-a"
+
+            latest_b = await scoped_b.get_latest(workflow_name="wf")
+            assert latest_b is not None
+            assert latest_b.checkpoint_id == "cp-b"
+            await storage.dispose()
+
+    async def test_scoped_load_and_delete_are_global(self):
+        """load and delete operate on checkpoint_id which is globally unique."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
-            store = SqliteSessionStore(db_path)
-            await store.setup()
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
 
-            session_data = {
-                "session_id": "abc-123",
-                "state": {
-                    "memory": {
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": "What is the weather?",
-                                "metadata": {"timestamp": "2025-01-01T00:00:00Z"},
-                            },
-                            {
-                                "role": "assistant",
-                                "content": "It's sunny!",
-                                "tool_calls": [
-                                    {
-                                        "id": "call_1",
-                                        "name": "get_weather",
-                                        "arguments": {"city": "SF"},
-                                    }
-                                ],
-                            },
-                        ]
-                    },
-                    "custom_key": [1, 2, 3],
-                    "nested": {"a": {"b": {"c": True}}},
-                },
-            }
+            scoped = ScopedCheckpointStorage(cs, "rt-x")
+            cp = _make_checkpoint(workflow_name="wf", checkpoint_id="cp-global")
+            await scoped.save(cp)
 
-            await store.save_session("rt-complex", session_data)
-            loaded = await store.load_session("rt-complex")
+            # Load from any scope
+            loaded = await scoped.load("cp-global")
+            assert loaded.checkpoint_id == "cp-global"
 
-            assert loaded == session_data
-            await store.dispose()
+            # Delete from any scope
+            result = await scoped.delete("cp-global")
+            assert result is True
+            await storage.dispose()
+
+    async def test_scoped_list_checkpoint_ids(self):
+        """list_checkpoint_ids respects scope."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+            cs = storage.checkpoint_storage
+            assert cs is not None
+
+            scoped_a = ScopedCheckpointStorage(cs, "rt-a")
+            scoped_b = ScopedCheckpointStorage(cs, "rt-b")
+
+            cp_a = _make_checkpoint(workflow_name="wf", checkpoint_id="cp-a")
+            cp_b = _make_checkpoint(workflow_name="wf", checkpoint_id="cp-b")
+
+            await scoped_a.save(cp_a)
+            await scoped_b.save(cp_b)
+
+            ids_a = await scoped_a.list_checkpoint_ids(workflow_name="wf")
+            ids_b = await scoped_b.list_checkpoint_ids(workflow_name="wf")
+
+            assert ids_a == ["cp-a"]
+            assert ids_b == ["cp-b"]
+            await storage.dispose()

@@ -23,103 +23,6 @@ def _make_agent(name="test_agent", tools=None) -> BaseAgent:
     return agent
 
 
-class TestGraphStructure:
-    """Tests for graph structure correctness."""
-
-    def test_start_and_end_nodes_present(self):
-        """Graph always has __start__ and __end__ nodes."""
-        agent = _make_agent(name="my_agent")
-        graph = get_agent_graph(agent)
-
-        node_types = {n.type for n in graph.nodes}
-        assert "__start__" in node_types
-        assert "__end__" in node_types
-
-    def test_agent_node_type_is_node(self):
-        """Agent nodes have type 'node'."""
-        agent = _make_agent(name="my_agent")
-        graph = get_agent_graph(agent)
-
-        agent_node = next(n for n in graph.nodes if n.id == "my_agent")
-        assert agent_node.type == "node"
-
-    def test_tools_node_type_is_tool(self):
-        """Tools nodes have type 'tool'."""
-
-        def search():
-            pass
-
-        search.__name__ = "search"
-        tool = search
-
-        agent = _make_agent(name="my_agent", tools=[tool])
-        graph = get_agent_graph(agent)
-
-        tools_node = next(n for n in graph.nodes if n.id == "my_agent_tools")
-        assert tools_node.type == "tool"
-
-    def test_start_connects_to_agent(self):
-        """__start__ connects to the agent with 'input' label."""
-        agent = _make_agent(name="my_agent")
-        graph = get_agent_graph(agent)
-
-        start_edge = next(e for e in graph.edges if e.source == "__start__")
-        assert start_edge.target == "my_agent"
-        assert start_edge.label == "input"
-
-    def test_agent_connects_to_end(self):
-        """Agent connects to __end__ with 'output' label."""
-        agent = _make_agent(name="my_agent")
-        graph = get_agent_graph(agent)
-
-        end_edge = next(e for e in graph.edges if e.target == "__end__")
-        assert end_edge.source == "my_agent"
-        assert end_edge.label == "output"
-
-    def test_tools_metadata_contains_names(self):
-        """Tools node metadata includes tool names and count."""
-
-        def search():
-            pass
-
-        search.__name__ = "search"
-
-        def calculator():
-            pass
-
-        calculator.__name__ = "calculator"
-        tool1 = search
-        tool2 = calculator
-
-        agent = _make_agent(name="agent", tools=[tool1, tool2])
-        graph = get_agent_graph(agent)
-
-        tools_node = next(n for n in graph.nodes if n.id == "agent_tools")
-        assert tools_node.metadata is not None
-        assert tools_node.metadata["tool_names"] == ["search", "calculator"]
-        assert tools_node.metadata["tool_count"] == 2
-
-    def test_agent_name_fallback(self):
-        """Agent without name falls back to 'agent'."""
-        agent = MagicMock(spec=BaseAgent)
-        agent.name = None
-        agent.default_options = {"tools": []}
-
-        graph = get_agent_graph(agent)
-        node_ids = [n.id for n in graph.nodes]
-        assert "agent" in node_ids
-
-    def test_no_subgraph_or_metadata_on_simple_nodes(self):
-        """Simple agent/start/end nodes have no subgraph or metadata."""
-        agent = _make_agent(name="test")
-        graph = get_agent_graph(agent)
-
-        for node in graph.nodes:
-            assert node.subgraph is None
-            if node.type != "tool":
-                assert node.metadata is None
-
-
 def _make_edge(
     source_id: str, target_id: str, condition_name: str | None = None
 ) -> Edge:
@@ -396,6 +299,74 @@ class TestWorkflowGraph:
         edge_pairs = [(e.source, e.target) for e in graph.edges]
         assert ("researcher", "researcher_tools") in edge_pairs
         assert ("researcher_tools", "researcher") in edge_pairs
+
+    def test_handoff_tools_excluded_from_tool_nodes(self):
+        """Handoff tools are not shown as tool nodes — they are edges."""
+
+        def handoff_to_billing():
+            pass
+
+        handoff_to_billing.__name__ = "handoff_to_billing"
+
+        def handoff_to_tech():
+            pass
+
+        handoff_to_tech.__name__ = "handoff_to_tech"
+
+        triage_agent = _make_agent(
+            name="triage", tools=[handoff_to_billing, handoff_to_tech]
+        )
+        executors = {
+            "triage": _make_executor("triage", agent=triage_agent),
+            "billing": _make_executor("billing"),
+            "tech": _make_executor("tech"),
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="triage",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        node_ids = {n.id for n in graph.nodes}
+        assert "triage_tools" not in node_ids
+
+    def test_mixed_handoff_and_regular_tools(self):
+        """Only non-handoff tools appear in tool nodes when mixed with handoffs."""
+
+        def handoff_to_billing():
+            pass
+
+        handoff_to_billing.__name__ = "handoff_to_billing"
+
+        def search_docs():
+            pass
+
+        search_docs.__name__ = "search_docs"
+
+        triage_agent = _make_agent(
+            name="triage", tools=[handoff_to_billing, search_docs]
+        )
+        executors = {
+            "triage": _make_executor("triage", agent=triage_agent),
+            "billing": _make_executor("billing"),
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="triage",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        node_ids = {n.id for n in graph.nodes}
+        assert "triage_tools" in node_ids
+
+        tools_node = next(n for n in graph.nodes if n.id == "triage_tools")
+        assert tools_node.metadata is not None
+        assert tools_node.metadata["tool_names"] == ["search_docs"]
+        assert tools_node.metadata["tool_count"] == 1
 
     def test_workflow_edge_condition_labels(self):
         """Conditional edges include condition_name as label."""

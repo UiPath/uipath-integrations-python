@@ -1,0 +1,18 @@
+flowchart TB
+  __start__(__start__)
+  __end__(__end__)
+  orchestrator(orchestrator)
+  researcher(researcher)
+  researcher_tools(tools)
+  critic(critic)
+  writer(writer)
+  researcher --> researcher_tools
+  researcher_tools --> researcher
+  __start__ --> |input|orchestrator
+  orchestrator --> researcher
+  researcher --> orchestrator
+  orchestrator --> critic
+  critic --> orchestrator
+  orchestrator --> writer
+  writer --> orchestrator
+  orchestrator --> |output|__end__

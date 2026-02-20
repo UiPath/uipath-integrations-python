@@ -4,14 +4,16 @@ import asyncio
 import os
 from typing import Any
 
-from agent_framework import BaseAgent
+from agent_framework import WorkflowAgent
 from agent_framework.observability import enable_instrumentation
 from openinference.instrumentation.agent_framework import (
     AgentFrameworkToOpenInferenceProcessor,
 )
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from uipath.platform.resume_triggers import UiPathResumeTriggerHandler
 from uipath.runtime import (
+    UiPathResumableRuntime,
     UiPathRuntimeContext,
     UiPathRuntimeFactorySettings,
     UiPathRuntimeProtocol,
@@ -25,8 +27,11 @@ from uipath_agent_framework.runtime.errors import (
     UiPathAgentFrameworkRuntimeError,
 )
 from uipath_agent_framework.runtime.loader import AgentFrameworkAgentLoader
+from uipath_agent_framework.runtime.resumable_storage import (
+    ScopedCheckpointStorage,
+    SqliteResumableStorage,
+)
 from uipath_agent_framework.runtime.runtime import UiPathAgentFrameworkRuntime
-from uipath_agent_framework.runtime.storage import SqliteSessionStore
 
 
 class UiPathAgentFrameworkRuntimeFactory:
@@ -47,8 +52,8 @@ class UiPathAgentFrameworkRuntimeFactory:
 
         self._agent_loaders: dict[str, AgentFrameworkAgentLoader] = {}
 
-        self._session_store: SqliteSessionStore | None = None
-        self._session_store_lock = asyncio.Lock()
+        self._storage: SqliteResumableStorage | None = None
+        self._storage_lock = asyncio.Lock()
 
         self._setup_instrumentation()
 
@@ -56,7 +61,6 @@ class UiPathAgentFrameworkRuntimeFactory:
         """Setup tracing and instrumentation."""
         enable_instrumentation()
 
-        # Add OpenInference span processor for Arize Phoenix compatibility
         tracer_provider = trace.get_tracer_provider()
         if isinstance(tracer_provider, TracerProvider):
             tracer_provider.add_span_processor(AgentFrameworkToOpenInferenceProcessor())
@@ -84,16 +88,16 @@ class UiPathAgentFrameworkRuntimeFactory:
                 os.remove(path)
         return path
 
-    async def _get_session_store(self) -> SqliteSessionStore:
-        """Get or create the shared session store instance."""
-        async with self._session_store_lock:
-            if self._session_store is None:
+    async def _get_storage(self) -> SqliteResumableStorage:
+        """Get or create the shared resumable storage instance."""
+        async with self._storage_lock:
+            if self._storage is None:
                 db_path = self._get_db_path()
-                self._session_store = SqliteSessionStore(db_path)
-                await self._session_store.setup()
-            return self._session_store
+                self._storage = SqliteResumableStorage(db_path)
+                await self._storage.setup()
+            return self._storage
 
-    async def _load_agent(self, entrypoint: str) -> BaseAgent:
+    async def _load_agent(self, entrypoint: str) -> WorkflowAgent:
         """
         Load an agent for the given entrypoint.
 
@@ -101,7 +105,7 @@ class UiPathAgentFrameworkRuntimeFactory:
             entrypoint: Name of the agent to load
 
         Returns:
-            The loaded BaseAgent
+            The loaded WorkflowAgent
 
         Raises:
             UiPathAgentFrameworkRuntimeError: If agent cannot be loaded
@@ -162,15 +166,14 @@ class UiPathAgentFrameworkRuntimeFactory:
                 UiPathErrorCategory.USER,
             ) from e
 
-    async def _resolve_agent(self, entrypoint: str) -> BaseAgent:
+    async def _resolve_agent(self, entrypoint: str) -> WorkflowAgent:
         """Load a fresh agent instance for the given entrypoint.
 
         Agents are NOT cached — each runtime gets its own instance.
-        Agent Framework agents (especially WorkflowAgents) hold internal
-        mutable state (e.g. Workflow._is_running) that prevents concurrent
-        executions on the same instance. Since the factory creates multiple
-        runtimes in parallel (one per request), sharing an agent instance
-        would cause "Workflow is already running" errors.
+        WorkflowAgents hold internal mutable state (e.g. Workflow._is_running)
+        that prevents concurrent executions on the same instance. Since the
+        factory creates multiple runtimes in parallel (one per request),
+        sharing an agent instance would cause "Workflow is already running" errors.
         """
         return await self._load_agent(entrypoint)
 
@@ -188,7 +191,7 @@ class UiPathAgentFrameworkRuntimeFactory:
 
     async def get_storage(self) -> UiPathRuntimeStorageProtocol | None:
         """Get the shared storage instance."""
-        return None
+        return await self._get_storage()
 
     async def get_settings(self) -> UiPathRuntimeFactorySettings | None:
         """Get the factory settings."""
@@ -196,23 +199,35 @@ class UiPathAgentFrameworkRuntimeFactory:
 
     async def _create_runtime_instance(
         self,
-        agent: BaseAgent,
+        agent: WorkflowAgent,
         runtime_id: str,
         entrypoint: str,
     ) -> UiPathRuntimeProtocol:
         """Create a runtime instance from an agent.
 
-        Creates the runtime with a shared SqliteSessionStore for persistent
-        conversation history. Sessions are isolated by runtime_id — each
-        runtime instance gets its own conversation state.
+        Creates the runtime with a shared SqliteResumableStorage for persistent
+        conversation history and HITL trigger management. Wraps with
+        UiPathResumableRuntime for resume trigger lifecycle handling.
         """
-        session_store = await self._get_session_store()
+        storage = await self._get_storage()
+        assert storage.checkpoint_storage is not None
+        checkpoint_storage = ScopedCheckpointStorage(
+            storage.checkpoint_storage, runtime_id
+        )
 
-        return UiPathAgentFrameworkRuntime(
+        base_runtime = UiPathAgentFrameworkRuntime(
             agent=agent,
             runtime_id=runtime_id,
             entrypoint=entrypoint,
-            session_store=session_store,
+            checkpoint_storage=checkpoint_storage,
+            resumable_storage=storage,
+        )
+
+        return UiPathResumableRuntime(
+            delegate=base_runtime,
+            storage=storage,
+            trigger_manager=UiPathResumeTriggerHandler(),
+            runtime_id=runtime_id,
         )
 
     async def new_runtime(
@@ -244,6 +259,6 @@ class UiPathAgentFrameworkRuntimeFactory:
 
         self._agent_loaders.clear()
 
-        if self._session_store:
-            await self._session_store.dispose()
-            self._session_store = None
+        if self._storage:
+            await self._storage.dispose()
+            self._storage = None

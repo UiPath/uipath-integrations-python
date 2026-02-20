@@ -5,15 +5,16 @@ from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 from agent_framework import (
+    AgentExecutor,
     AgentResponse,
     AgentResponseUpdate,
     AgentSession,
-    BaseAgent,
     Content,
-    FunctionTool,
     Message,
     WorkflowAgent,
+    WorkflowRunResult,
 )
+from pydantic import BaseModel
 from uipath.core.serialization import serialize_json
 from uipath.runtime import (
     UiPathExecuteOptions,
@@ -30,50 +31,16 @@ from uipath.runtime.events import (
 )
 from uipath.runtime.schema import UiPathRuntimeSchema
 
+from .breakpoints import (
+    AgentInterruptException,
+    create_breakpoint_result,
+    inject_breakpoint_middleware,
+    remove_breakpoint_middleware,
+)
 from .errors import UiPathAgentFrameworkErrorCode, UiPathAgentFrameworkRuntimeError
 from .messages import AgentFrameworkChatMessagesMapper
-from .schema import (
-    extract_agent_from_tool,
-    get_agent_graph,
-    get_agent_tools,
-    get_entrypoints_schema,
-)
-from .storage import SqliteSessionStore
-
-
-class _StreamState:
-    """Mutable state tracker for agent streaming.
-
-    Holds the sub-agent metadata (computed once) and the active node
-    state that changes as function_call / function_result events arrive.
-    """
-
-    __slots__ = (
-        "root_agent",
-        "active_agent",
-        "active_tools",
-        "call_ids",
-        "agent_tool_names",
-        "tool_name_to_agent",
-        "sub_agents_with_tools",
-    )
-
-    def __init__(
-        self,
-        root_agent: str,
-        agent_tool_names: set[str],
-        tool_name_to_agent: dict[str, str],
-        sub_agents_with_tools: set[str],
-    ) -> None:
-        self.root_agent = root_agent
-        self.active_agent: str = root_agent
-        self.active_tools: str | None = None
-        # call_id → sub-agent name (content.name on function_result
-        # may be empty for as_tool() wrappers, so we match by call_id).
-        self.call_ids: dict[str, str] = {}
-        self.agent_tool_names = agent_tool_names
-        self.tool_name_to_agent = tool_name_to_agent
-        self.sub_agents_with_tools = sub_agents_with_tools
+from .resumable_storage import ScopedCheckpointStorage, SqliteResumableStorage
+from .schema import get_agent_graph, get_entrypoints_schema
 
 
 class UiPathAgentFrameworkRuntime:
@@ -81,72 +48,126 @@ class UiPathAgentFrameworkRuntime:
 
     def __init__(
         self,
-        agent: BaseAgent,
+        agent: WorkflowAgent,
         runtime_id: str | None = None,
         entrypoint: str | None = None,
-        session_store: SqliteSessionStore | None = None,
+        checkpoint_storage: ScopedCheckpointStorage | None = None,
+        resumable_storage: SqliteResumableStorage | None = None,
     ):
-        self.agent: BaseAgent = agent
+        self.agent: WorkflowAgent = agent
         self.runtime_id: str = runtime_id or "default"
         self.entrypoint: str | None = entrypoint
         self.chat = AgentFrameworkChatMessagesMapper()
-        self._session_store = session_store
+        self._checkpoint_storage = checkpoint_storage
+        self._resumable_storage = resumable_storage
+        self._resume_responses: dict[str, Any] | None = None
+        self._breakpoint_skip_nodes: dict[str, int] = {}
+        self._last_breakpoint_node: str | None = None
+        self._last_checkpoint_id: str | None = None
+        self._resumed_from_checkpoint_id: str | None = None
 
     # ------------------------------------------------------------------
-    # Sub-agent introspection
+    # Checkpoint helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _build_sub_agent_info(
-        agent: BaseAgent,
-    ) -> tuple[set[str], dict[str, str], set[str]]:
-        """Inspect the agent's tools once to extract all sub-agent metadata.
+    async def _get_latest_checkpoint_id(self) -> str | None:
+        """Get the latest checkpoint ID for this workflow."""
+        if not self._checkpoint_storage:
+            return None
+        workflow_name = self.agent.workflow.name
+        checkpoint = await self._checkpoint_storage.get_latest(
+            workflow_name=workflow_name
+        )
+        return checkpoint.checkpoint_id if checkpoint else None
 
-        Returns:
-            agent_tool_names: tool names that wrap sub-agents
-            tool_name_to_agent: mapping from tool name → sub-agent node name
-            sub_agents_with_tools: sub-agent names that own tools
+    async def _save_breakpoint_state(
+        self, original_input: str, checkpoint_id: str | None = None
+    ) -> None:
+        """Persist breakpoint state to KV storage for resume.
+
+        skip_nodes is a dict mapping executor_id → pass-through count.
+        Each count records how many times the executor must be allowed
+        to run before re-arming its breakpoint.  The count is incremented
+        every time the same executor hits a breakpoint again (cyclic
+        graphs, GroupChat orchestrators).
         """
-        agent_tool_names: set[str] = set()
-        tool_name_to_agent: dict[str, str] = {}
-        sub_agents_with_tools: set[str] = set()
+        if not self._resumable_storage:
+            return
+        if checkpoint_id is None:
+            checkpoint_id = await self._get_latest_checkpoint_id()
+        state = {
+            "skip_nodes": dict(self._breakpoint_skip_nodes),
+            "last_breakpoint_node": self._last_breakpoint_node,
+            "checkpoint_id": checkpoint_id,
+            "original_input": original_input,
+        }
+        await self._resumable_storage.set_value(
+            self.runtime_id, "breakpoint", "state", state
+        )
 
-        for tool in get_agent_tools(agent):
-            inner_agent = extract_agent_from_tool(tool)
-            if inner_agent is None or not isinstance(tool, FunctionTool):
-                continue
+    async def _load_breakpoint_state(self) -> dict[str, Any] | None:
+        """Load breakpoint state from KV storage."""
+        if not self._resumable_storage:
+            return None
+        state = await self._resumable_storage.get_value(
+            self.runtime_id, "breakpoint", "state"
+        )
+        if state and isinstance(state, dict):
+            self._breakpoint_skip_nodes = dict(state.get("skip_nodes", {}))
+            self._last_breakpoint_node = state.get("last_breakpoint_node")
+            self._last_checkpoint_id = state.get("checkpoint_id")
+            return state
+        return None
 
-            agent_tool_names.add(tool.name)
-            inner_name = inner_agent.name or "agent"
-            tool_name_to_agent[tool.name] = inner_name
+    def _get_breakpoint_skip(self) -> dict[str, int]:
+        """Get the skip_nodes dict for breakpoint injection.
 
-            if get_agent_tools(inner_agent):
-                sub_agents_with_tools.add(inner_name)
-
-        return agent_tool_names, tool_name_to_agent, sub_agents_with_tools
+        Returns accumulated skip counts.  The counts are reset whenever
+        a checkpoint advancement is detected (see the breakpoint handlers
+        in execute / _stream_workflow) so they stay correct regardless
+        of whether checkpoints advance per-executor or stay at a coarser
+        granularity.
+        """
+        return dict(self._breakpoint_skip_nodes)
 
     # ------------------------------------------------------------------
-    # Session helpers
+    # Session helpers (multi-turn conversation history)
     # ------------------------------------------------------------------
 
     async def _load_session(self) -> AgentSession:
-        """Load or create an AgentSession for this runtime_id."""
-        if self._session_store:
-            session_data = await self._session_store.load_session(self.runtime_id)
-            if session_data is not None:
-                return AgentSession.from_dict(session_data)  # type: ignore[attr-defined]
+        """Load or create an AgentSession for this runtime_id.
 
-        return self.agent.create_session(session_id=self.runtime_id)  # type: ignore[attr-defined]
+        Sessions maintain conversation history across turns. This is separate
+        from checkpoints which handle workflow interruption/resume.
+        """
+        if self._resumable_storage:
+            session_data = await self._resumable_storage.get_value(
+                self.runtime_id, "session", "data"
+            )
+            if session_data is not None and isinstance(session_data, dict):
+                return AgentSession.from_dict(session_data)
+
+        return self.agent.create_session(session_id=self.runtime_id)
 
     async def _save_session(self, session: AgentSession) -> None:
         """Persist the session state after execution."""
-        if self._session_store:
-            session_data = session.to_dict()  # type: ignore[attr-defined]
-            await self._session_store.save_session(self.runtime_id, session_data)
+        if self._resumable_storage:
+            session_data = session.to_dict()
+            await self._resumable_storage.set_value(
+                self.runtime_id, "session", "data", session_data
+            )
 
-    # ------------------------------------------------------------------
-    # Execute (non-streaming)
-    # ------------------------------------------------------------------
+    def _apply_session_to_executors(self, session: AgentSession) -> None:
+        """Propagate the loaded session to all AgentExecutors in the workflow.
+
+        Each AgentExecutor uses a unique source_id key inside session.state,
+        so sharing one session across all executors is safe and ensures
+        conversation history is preserved across turns.
+        """
+        workflow = self.agent.workflow
+        for executor in workflow.executors.values():
+            if isinstance(executor, AgentExecutor):
+                executor._session = session
 
     async def execute(
         self,
@@ -154,57 +175,176 @@ class UiPathAgentFrameworkRuntime:
         options: UiPathExecuteOptions | None = None,
     ) -> UiPathRuntimeResult:
         """Execute the agent with the provided input and return the result."""
+        session = None
         try:
-            user_input = self._prepare_input(input)
-            session = await self._load_session()
-            response = await self.agent.run(user_input, session=session)  # type: ignore[attr-defined]
-            await self._save_session(session)
-            output = self._extract_output(response)
+            is_resuming = bool(options and options.resume)
+
+            workflow = self.agent.workflow
+
+            if is_resuming and input is not None:
+                # HITL resume: checkpoint restores executor state (including session)
+                self._resume_responses = input
+
+                # Inject breakpoints (no skip needed for HITL resume)
+                if options and options.breakpoints:
+                    inject_breakpoint_middleware(self.agent, options.breakpoints)
+
+                if self._resume_responses:
+                    checkpoint_id = await self._get_latest_checkpoint_id()
+                    self._resumed_from_checkpoint_id = checkpoint_id
+                    result = await workflow.run(
+                        responses=self._resume_responses,
+                        checkpoint_id=checkpoint_id,
+                        checkpoint_storage=self._checkpoint_storage,
+                    )
+                    self._resume_responses = None
+                else:
+                    self._resumed_from_checkpoint_id = None
+                    result = await workflow.run(
+                        message="",
+                        checkpoint_storage=self._checkpoint_storage,
+                    )
+            elif is_resuming:
+                # Breakpoint resume: restore from checkpoint
+                bp_state = await self._load_breakpoint_state()
+                checkpoint_id = self._last_checkpoint_id
+                self._resumed_from_checkpoint_id = checkpoint_id
+                original_input = bp_state.get("original_input", "") if bp_state else ""
+
+                # Inject breakpoints with accumulated skip counts
+                if options and options.breakpoints:
+                    inject_breakpoint_middleware(
+                        self.agent, options.breakpoints, self._get_breakpoint_skip()
+                    )
+
+                if checkpoint_id:
+                    result = await workflow.run(
+                        checkpoint_id=checkpoint_id,
+                        checkpoint_storage=self._checkpoint_storage,
+                    )
+                else:
+                    result = await workflow.run(
+                        message=original_input,
+                        checkpoint_storage=self._checkpoint_storage,
+                    )
+            else:
+                # Fresh run: load session for multi-turn conversation history
+                self._resumed_from_checkpoint_id = None
+                session = await self._load_session()
+                self._apply_session_to_executors(session)
+
+                # Inject breakpoints for fresh runs
+                if options and options.breakpoints:
+                    inject_breakpoint_middleware(self.agent, options.breakpoints)
+
+                user_input = self._prepare_input(input)
+                result = await workflow.run(
+                    message=user_input,
+                    checkpoint_storage=self._checkpoint_storage,
+                )
+
+            if session is not None:
+                await self._save_session(session)
+            output = self._extract_workflow_output(result)
             return self._create_success_result(output)
+        except AgentInterruptException as e:
+            if session is not None:
+                await self._save_session(session)
+            if e.is_breakpoint:
+                node_id = (
+                    e.suspend_value.get("node_id", "")
+                    if isinstance(e.suspend_value, dict)
+                    else ""
+                )
+                # Detect checkpoint advancement and reset counts if needed
+                latest_checkpoint = await self._get_latest_checkpoint_id()
+                if (
+                    latest_checkpoint
+                    and self._resumed_from_checkpoint_id
+                    and latest_checkpoint != self._resumed_from_checkpoint_id
+                ):
+                    self._breakpoint_skip_nodes = {}
+                self._breakpoint_skip_nodes[node_id] = (
+                    self._breakpoint_skip_nodes.get(node_id, 0) + 1
+                )
+                self._last_breakpoint_node = node_id
+                original_input = self._prepare_input(input) if not is_resuming else ""
+                await self._save_breakpoint_state(
+                    original_input, checkpoint_id=latest_checkpoint
+                )
+                return create_breakpoint_result(e)
+            return self._create_suspended_result(e)
         except Exception as e:
             raise self._create_runtime_error(e) from e
-
-    # ------------------------------------------------------------------
-    # Stream (main entry)
-    # ------------------------------------------------------------------
+        finally:
+            remove_breakpoint_middleware(self.agent)
 
     async def stream(
         self,
         input: dict[str, Any] | None = None,
         options: UiPathStreamOptions | None = None,
     ) -> AsyncGenerator[UiPathRuntimeEvent, None]:
-        """Stream agent execution events in real-time.
-
-        Two streaming paths:
-        - WorkflowAgent: raw workflow events (executor_invoked/completed).
-        - Regular BaseAgent: function_call/function_result content tracking.
-        """
+        """Stream workflow execution events in real-time."""
         try:
-            user_input = self._prepare_input(input)
-            session = await self._load_session()
+            is_resuming = bool(options and options.resume)
+            session = None
+
+            if is_resuming and input is not None:
+                # HITL resume: input contains response data
+                self._resume_responses = input
+                user_input = self._prepare_input(None)
+
+                # Inject breakpoints (no skip needed for HITL resume)
+                if options and options.breakpoints:
+                    inject_breakpoint_middleware(self.agent, options.breakpoints)
+
+            elif is_resuming:
+                # Breakpoint resume: restore original_input and session
+                self._resume_responses = None
+                bp_state = await self._load_breakpoint_state()
+                user_input = bp_state.get("original_input", "") if bp_state else ""
+
+                # Load session for context preservation across the breakpoint
+                session = await self._load_session()
+                self._apply_session_to_executors(session)
+
+                # Inject breakpoints — skip strategy depends on resume mode
+                if options and options.breakpoints:
+                    inject_breakpoint_middleware(
+                        self.agent, options.breakpoints, self._get_breakpoint_skip()
+                    )
+
+            else:
+                # Fresh run
+                self._resume_responses = None
+                user_input = self._prepare_input(input)
+
+                # Load session for multi-turn conversation history
+                session = await self._load_session()
+                self._apply_session_to_executors(session)
+
+                # Inject breakpoints for fresh runs
+                if options and options.breakpoints:
+                    inject_breakpoint_middleware(self.agent, options.breakpoints)
+
             agent_name = self.agent.name or "agent"
 
-            if isinstance(self.agent, WorkflowAgent):
-                async for event in self._stream_workflow(
-                    user_input, session, agent_name
-                ):
-                    yield event
-            else:
-                async for event in self._stream_agent(user_input, session, agent_name):
-                    yield event
+            async for event in self._stream_workflow(
+                user_input, agent_name, is_resuming, session
+            ):
+                yield event
 
         except Exception as e:
             raise self._create_runtime_error(e) from e
-
-    # ------------------------------------------------------------------
-    # Workflow streaming
-    # ------------------------------------------------------------------
+        finally:
+            remove_breakpoint_middleware(self.agent)
 
     async def _stream_workflow(
         self,
         user_input: str,
-        session: AgentSession,
         agent_name: str,
+        is_resuming: bool = False,
+        session: AgentSession | None = None,
     ) -> AsyncGenerator[UiPathRuntimeEvent, None]:
         """Stream workflow execution with real-time executor lifecycle events."""
         assert isinstance(self.agent, WorkflowAgent)
@@ -216,24 +356,152 @@ class UiPathAgentFrameworkRuntime:
             phase=UiPathRuntimeStatePhase.STARTED,
         )
 
-        response_stream = workflow.run(message=user_input, stream=True)
+        # Choose workflow.run() mode based on resume type
+        if self._resume_responses:
+            # HITL resume: pass responses to workflow with checkpoint
+            checkpoint_id = await self._get_latest_checkpoint_id()
+            self._resumed_from_checkpoint_id = checkpoint_id
+            response_stream = workflow.run(
+                responses=self._resume_responses,
+                checkpoint_id=checkpoint_id,
+                checkpoint_storage=self._checkpoint_storage,
+                stream=True,
+            )
+            self._resume_responses = None
+        elif self._last_checkpoint_id:
+            # Breakpoint resume with checkpoint: restore and continue
+            checkpoint_id = self._last_checkpoint_id
+            self._resumed_from_checkpoint_id = checkpoint_id
+            self._last_checkpoint_id = None
+            response_stream = workflow.run(
+                checkpoint_id=checkpoint_id,
+                checkpoint_storage=self._checkpoint_storage,
+                stream=True,
+            )
+        else:
+            # Fresh run (or breakpoint resume without checkpoint — uses original_input)
+            self._resumed_from_checkpoint_id = None
+            response_stream = workflow.run(
+                message=user_input,
+                checkpoint_storage=self._checkpoint_storage,
+                stream=True,
+            )
 
-        async for event in response_stream:
-            if event.type == "executor_invoked":
-                yield UiPathRuntimeStateEvent(
-                    payload=self._serialize_event_data(event.data),
-                    node_name=event.executor_id,
-                    phase=UiPathRuntimeStatePhase.STARTED,
+        request_info_map: dict[str, Any] = {}
+        is_suspended = False
+        # Track executors whose tool events were emitted via output events.
+        # When the workflow filters output events (e.g. GroupChat), tool events
+        # are instead extracted from executor_completed data as a fallback.
+        executors_with_tool_outputs: set[str] = set()
+
+        # Emit an early STARTED event for the start executor so the graph
+        # visualization shows it immediately rather than after it finishes.
+        # The framework's _run_workflow_with_tracing awaits the entire start
+        # executor before yielding any executor events, which means the real
+        # executor_invoked arrives only after execution completes.
+        pre_emitted_executor: str | None = None
+        if not is_resuming:
+            start_id = workflow.start_executor_id
+            yield UiPathRuntimeStateEvent(
+                payload={},
+                node_name=start_id,
+                phase=UiPathRuntimeStatePhase.STARTED,
+            )
+            pre_emitted_executor = start_id
+
+        try:
+            async for event in response_stream:
+                if event.type == "request_info":
+                    request_info_map[event.request_id] = event.data
+                elif event.type == "executor_invoked":
+                    # Skip the duplicate for the start executor we already emitted
+                    if (
+                        pre_emitted_executor
+                        and event.executor_id == pre_emitted_executor
+                    ):
+                        pre_emitted_executor = None
+                        continue
+                    yield UiPathRuntimeStateEvent(
+                        payload=self._serialize_event_data(event.data),
+                        node_name=event.executor_id,
+                        phase=UiPathRuntimeStatePhase.STARTED,
+                    )
+                elif event.type == "executor_completed":
+                    # When output events were filtered by the workflow (e.g.
+                    # GroupChat where participants are not output executors),
+                    # extract tool state events from the completed data instead.
+                    if (
+                        event.executor_id
+                        and event.executor_id not in executors_with_tool_outputs
+                    ):
+                        for tool_event in self._extract_tool_state_events(
+                            event.data, event.executor_id
+                        ):
+                            yield tool_event
+                    yield UiPathRuntimeStateEvent(
+                        payload=self._serialize_event_data(
+                            self._filter_completed_data(event.data)
+                        ),
+                        node_name=event.executor_id,
+                        phase=UiPathRuntimeStatePhase.COMPLETED,
+                    )
+                elif event.type == "output":
+                    executor_id = getattr(event, "executor_id", None) or ""
+                    tool_events = self._extract_tool_state_events(
+                        event.data, executor_id
+                    )
+                    if tool_events:
+                        executors_with_tool_outputs.add(executor_id)
+                    for tool_event in tool_events:
+                        yield tool_event
+                    for msg_event in self._extract_workflow_messages(event.data):
+                        yield UiPathRuntimeMessageEvent(payload=msg_event)
+
+                # Detect workflow suspension via state
+                if (
+                    event.type == "status"
+                    and str(event.state) == "IDLE_WITH_PENDING_REQUESTS"
+                ):
+                    is_suspended = True
+        except AgentInterruptException as e:
+            # Breakpoint or HITL interrupt fired inside an inner agent
+            yield UiPathRuntimeStateEvent(
+                payload={},
+                node_name=agent_name,
+                phase=UiPathRuntimeStatePhase.COMPLETED,
+            )
+
+            for msg_event in self.chat.close_message():
+                yield UiPathRuntimeMessageEvent(payload=msg_event)
+
+            if session is not None:
+                await self._save_session(session)
+
+            if e.is_breakpoint:
+                node_id = (
+                    e.suspend_value.get("node_id", "")
+                    if isinstance(e.suspend_value, dict)
+                    else ""
                 )
-            elif event.type == "executor_completed":
-                yield UiPathRuntimeStateEvent(
-                    payload=self._serialize_event_data(event.data),
-                    node_name=event.executor_id,
-                    phase=UiPathRuntimeStatePhase.COMPLETED,
+                # Detect checkpoint advancement and reset counts if needed
+                latest_checkpoint = await self._get_latest_checkpoint_id()
+                if (
+                    latest_checkpoint
+                    and self._resumed_from_checkpoint_id
+                    and latest_checkpoint != self._resumed_from_checkpoint_id
+                ):
+                    self._breakpoint_skip_nodes = {}
+                self._breakpoint_skip_nodes[node_id] = (
+                    self._breakpoint_skip_nodes.get(node_id, 0) + 1
                 )
-            elif event.type == "output":
-                for msg_event in self._extract_workflow_messages(event.data):
-                    yield UiPathRuntimeMessageEvent(payload=msg_event)
+                self._last_breakpoint_node = node_id
+                await self._save_breakpoint_state(
+                    user_input, checkpoint_id=latest_checkpoint
+                )
+                yield create_breakpoint_result(e)
+            else:
+                yield self._create_suspended_result(e)
+            return
 
         yield UiPathRuntimeStateEvent(
             payload={},
@@ -244,261 +512,32 @@ class UiPathAgentFrameworkRuntime:
         for msg_event in self.chat.close_message():
             yield UiPathRuntimeMessageEvent(payload=msg_event)
 
-        await self._save_session(session)
+        if session is not None:
+            await self._save_session(session)
 
-        final_result = await response_stream.get_final_response()
-        output = self._extract_workflow_output(final_result)
-        yield self._create_success_result(output)
-
-    # ------------------------------------------------------------------
-    # Agent streaming
-    # ------------------------------------------------------------------
-
-    async def _stream_agent(
-        self,
-        user_input: str,
-        session: AgentSession,
-        agent_name: str,
-    ) -> AsyncGenerator[UiPathRuntimeEvent, None]:
-        """Stream regular BaseAgent execution with tool/sub-agent tracking."""
-        state = _StreamState(agent_name, *self._build_sub_agent_info(self.agent))
-
-        yield UiPathRuntimeStateEvent(
-            payload={},
-            node_name=agent_name,
-            phase=UiPathRuntimeStatePhase.STARTED,
-        )
-
-        response_stream = self.agent.run(user_input, stream=True, session=session)  # type: ignore[attr-defined]
-        async for update in response_stream:
-            if not isinstance(update, AgentResponseUpdate):
-                continue
-
-            for content in update.contents or []:
-                if not isinstance(content, Content):
-                    continue
-
-                for event in self._process_agent_content(state, content):
-                    yield event
-
-                for msg in self.chat.map_streaming_content(content):
-                    yield UiPathRuntimeMessageEvent(payload=msg)
-
-        # Teardown: close remaining nodes
-        if state.active_tools:
-            yield UiPathRuntimeStateEvent(
-                payload={},
-                node_name=state.active_tools,
-                phase=UiPathRuntimeStatePhase.COMPLETED,
+        if is_suspended and request_info_map:
+            yield UiPathRuntimeResult(
+                output=request_info_map,
+                status=UiPathRuntimeStatus.SUSPENDED,
             )
-
-        yield UiPathRuntimeStateEvent(
-            payload={},
-            node_name=agent_name,
-            phase=UiPathRuntimeStatePhase.COMPLETED,
-        )
-
-        for msg in self.chat.close_message():
-            yield UiPathRuntimeMessageEvent(payload=msg)
-
-        await self._save_session(session)
-
-        final_response = await response_stream.get_final_response()
-        yield self._create_success_result(self._extract_output(final_response))
-
-    # ------------------------------------------------------------------
-    # Agent content event handlers
-    # ------------------------------------------------------------------
-
-    def _process_agent_content(
-        self, s: _StreamState, content: Content
-    ) -> list[UiPathRuntimeStateEvent]:
-        """Dispatch a streaming Content to the appropriate handler."""
-        if content.type == "function_call":
-            if not content.name:
-                return []
-            if content.name in s.agent_tool_names:
-                return self._on_sub_agent_call(s, content)
-            return self._on_tool_call(s, content)
-
-        if content.type == "function_result":
-            return self._on_function_result(s, content)
-
-        return []
-
-    def _on_sub_agent_call(
-        self, s: _StreamState, content: Content
-    ) -> list[UiPathRuntimeStateEvent]:
-        """Handle a function_call that invokes a sub-agent via as_tool()."""
-        call_name = content.name or ""
-        sub_agent = s.tool_name_to_agent.get(call_name, call_name)
-        events: list[UiPathRuntimeStateEvent] = []
-
-        if content.call_id:
-            s.call_ids[content.call_id] = sub_agent
-
-        # Close any active tools node
-        if s.active_tools:
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload={},
-                    node_name=s.active_tools,
-                    phase=UiPathRuntimeStatePhase.COMPLETED,
-                )
-            )
-            s.active_tools = None
-
-        payload = {"function_name": call_name}
-
-        # Start sub-agent node
-        events.append(
-            UiPathRuntimeStateEvent(
-                payload=payload,
-                node_name=sub_agent,
-                phase=UiPathRuntimeStatePhase.STARTED,
-            )
-        )
-        s.active_agent = sub_agent
-
-        # Sub-agent's internal tool calls are opaque in the as_tool()
-        # stream — emit a synthetic STARTED on its tools node.
-        if sub_agent in s.sub_agents_with_tools:
-            tools_node = f"{sub_agent}_tools"
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload=payload,
-                    node_name=tools_node,
-                    phase=UiPathRuntimeStatePhase.STARTED,
-                )
-            )
-            s.active_tools = tools_node
         else:
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload=payload,
-                    node_name=sub_agent,
-                    metadata={"event_type": "function_call"},
-                )
-            )
-
-        return events
-
-    def _on_tool_call(
-        self, s: _StreamState, content: Content
-    ) -> list[UiPathRuntimeStateEvent]:
-        """Handle a regular (non-agent) function_call."""
-        call_name = content.name or ""
-        tools_node = f"{s.active_agent}_tools"
-        events: list[UiPathRuntimeStateEvent] = []
-
-        if s.active_tools != tools_node:
-            if s.active_tools:
-                events.append(
-                    UiPathRuntimeStateEvent(
-                        payload={},
-                        node_name=s.active_tools,
-                        phase=UiPathRuntimeStatePhase.COMPLETED,
-                    )
-                )
-            s.active_tools = tools_node
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload={},
-                    node_name=tools_node,
-                    phase=UiPathRuntimeStatePhase.STARTED,
-                )
-            )
-
-        events.append(
-            UiPathRuntimeStateEvent(
-                payload={"function_name": call_name},
-                node_name=tools_node,
-                metadata={"event_type": "function_call"},
-            )
-        )
-        return events
-
-    def _on_function_result(
-        self, s: _StreamState, content: Content
-    ) -> list[UiPathRuntimeStateEvent]:
-        """Handle a function_result for either a sub-agent or regular tool."""
-        call_id = content.call_id or ""
-        result_name = content.name or ""
-        events: list[UiPathRuntimeStateEvent] = []
-
-        # Match sub-agent by call_id first (reliable), fall back to name
-        matched = s.call_ids.pop(call_id, None)
-        if matched is None and result_name in s.agent_tool_names:
-            matched = s.tool_name_to_agent.get(result_name, result_name)
-
-        result_payload = self._build_result_payload(content)
-
-        if matched:
-            # Sub-agent completed — close tools, then agent, re-start root
-            if s.active_tools and s.active_tools == f"{matched}_tools":
-                events.append(
-                    UiPathRuntimeStateEvent(
-                        payload=result_payload,
-                        node_name=s.active_tools,
-                        phase=UiPathRuntimeStatePhase.COMPLETED,
-                    )
-                )
-                s.active_tools = None
-
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload=result_payload,
-                    node_name=matched,
-                    phase=UiPathRuntimeStatePhase.COMPLETED,
-                )
-            )
-            s.active_agent = s.root_agent
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload={},
-                    node_name=s.root_agent,
-                    phase=UiPathRuntimeStatePhase.STARTED,
-                )
-            )
-        elif s.active_tools:
-            # Regular tool completed
-            events.append(
-                UiPathRuntimeStateEvent(
-                    payload=result_payload,
-                    node_name=s.active_tools,
-                    phase=UiPathRuntimeStatePhase.COMPLETED,
-                )
-            )
-            s.active_tools = None
-            if s.active_agent:
-                events.append(
-                    UiPathRuntimeStateEvent(
-                        payload={},
-                        node_name=s.active_agent,
-                        phase=UiPathRuntimeStatePhase.STARTED,
-                    )
-                )
-
-        return events
-
-    # ------------------------------------------------------------------
-    # Payload / serialization helpers
-    # ------------------------------------------------------------------
+            final_result = await response_stream.get_final_response()
+            output = self._extract_workflow_output(final_result)
+            yield self._create_success_result(output)
 
     @staticmethod
-    def _build_result_payload(content: Content) -> dict[str, Any]:
-        """Build a payload dict from a function_result Content."""
-        payload: dict[str, Any] = {}
-        if content.name:
-            payload["function_name"] = content.name
-        if content.result is not None:
-            try:
-                payload["function_response"] = json.loads(
-                    serialize_json(content.result)
-                )
-            except Exception:
-                payload["function_response"] = str(content.result)
-        return payload
+    def _filter_completed_data(data: Any) -> Any:
+        """Strip streaming AgentResponseUpdate chunks from executor_completed data.
+
+        The framework packs sent_messages + yielded_outputs into the
+        executor_completed event. In streaming mode the yielded_outputs are
+        individual AgentResponseUpdate token chunks which bloat the payload.
+        Keep only the non-update items (e.g. AgentExecutorResponse).
+        """
+        if not isinstance(data, list):
+            return data
+        filtered = [item for item in data if not isinstance(item, AgentResponseUpdate)]
+        return filtered if filtered else None
 
     @staticmethod
     def _serialize_event_data(data: Any) -> dict[str, Any]:
@@ -513,9 +552,56 @@ class UiPathAgentFrameworkRuntime:
         except Exception:
             return {"data": str(data)}
 
-    # ------------------------------------------------------------------
-    # Workflow message / output extraction
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_tool_state_events(
+        data: Any, executor_id: str
+    ) -> list[UiPathRuntimeStateEvent]:
+        """Extract tool-node state events from output data containing function calls/results.
+
+        Looks for Content objects with type 'function_call' (tool start) and
+        'function_result' (tool end) and emits STARTED/COMPLETED StateEvents
+        for the '{executor_id}_tools' node.
+        """
+        contents: list[Any] = []
+
+        if isinstance(data, AgentResponseUpdate):
+            contents = list(data.contents or [])
+        elif isinstance(data, AgentResponse):
+            for message in data.messages or []:
+                contents.extend(message.contents or [])
+        elif isinstance(data, Message):
+            contents = list(data.contents or [])
+        elif isinstance(data, list):
+            events: list[UiPathRuntimeStateEvent] = []
+            for item in data:
+                events.extend(
+                    UiPathAgentFrameworkRuntime._extract_tool_state_events(
+                        item, executor_id
+                    )
+                )
+            return events
+
+        tool_node = f"{executor_id}_tools"
+        tool_events: list[UiPathRuntimeStateEvent] = []
+        for content in contents:
+            if isinstance(content, Content):
+                if content.type == "function_call" and content.name:
+                    tool_events.append(
+                        UiPathRuntimeStateEvent(
+                            payload={"tool_name": content.name},
+                            node_name=tool_node,
+                            phase=UiPathRuntimeStatePhase.STARTED,
+                        )
+                    )
+                elif content.type == "function_result":
+                    tool_events.append(
+                        UiPathRuntimeStateEvent(
+                            payload={},
+                            node_name=tool_node,
+                            phase=UiPathRuntimeStatePhase.COMPLETED,
+                        )
+                    )
+        return tool_events
 
     def _extract_workflow_messages(self, data: Any) -> list[Any]:
         """Extract UiPath conversation message events from workflow output data."""
@@ -540,11 +626,9 @@ class UiPathAgentFrameworkRuntime:
 
         return events
 
-    def _extract_workflow_output(self, result: Any) -> Any:
+    def _extract_workflow_output(self, result: WorkflowRunResult) -> Any:
         """Extract output from WorkflowRunResult."""
-        outputs: list[Any] = []
-        if hasattr(result, "get_outputs"):
-            outputs = result.get_outputs()
+        outputs = result.get_outputs()
 
         if not outputs:
             return ""
@@ -600,10 +684,6 @@ class UiPathAgentFrameworkRuntime:
             return "\n\n".join(parts)
         return ""
 
-    # ------------------------------------------------------------------
-    # Input / output / result helpers
-    # ------------------------------------------------------------------
-
     def _prepare_input(self, input: dict[str, Any] | None) -> str:
         """Prepare input string from UiPath input dictionary."""
         if not input:
@@ -613,12 +693,6 @@ class UiPathAgentFrameworkRuntime:
             return self.chat.map_messages_to_input(input["messages"])
 
         return json.dumps(input)
-
-    def _extract_output(self, response: AgentResponse) -> Any:
-        """Extract output from agent response."""
-        if response.text:
-            return response.text
-        return str(response) if response else ""
 
     def _create_success_result(self, output: Any) -> UiPathRuntimeResult:
         """Create result for successful completion."""
@@ -639,10 +713,27 @@ class UiPathAgentFrameworkRuntime:
             status=UiPathRuntimeStatus.SUCCESSFUL,
         )
 
+    def _create_suspended_result(
+        self, exc: AgentInterruptException
+    ) -> UiPathRuntimeResult:
+        """Create a SUSPENDED result from an AgentInterruptException."""
+        interrupt_value = exc.suspend_value
+        if isinstance(interrupt_value, BaseModel):
+            interrupt_value = interrupt_value.model_dump(by_alias=True)
+
+        return UiPathRuntimeResult(
+            output={exc.interrupt_id: interrupt_value},
+            status=UiPathRuntimeStatus.SUSPENDED,
+        )
+
     def _create_runtime_error(self, e: Exception) -> UiPathAgentFrameworkRuntimeError:
         """Handle execution errors and create appropriate runtime error."""
         if isinstance(e, UiPathAgentFrameworkRuntimeError):
             return e
+
+        # Let AgentInterruptException propagate (handled by caller)
+        if isinstance(e, AgentInterruptException):
+            raise e
 
         detail = f"Error: {str(e)}"
 
@@ -668,10 +759,6 @@ class UiPathAgentFrameworkRuntime:
             detail,
             UiPathErrorCategory.USER,
         )
-
-    # ------------------------------------------------------------------
-    # Schema
-    # ------------------------------------------------------------------
 
     async def get_schema(self) -> UiPathRuntimeSchema:
         """Get schema for this Agent Framework runtime."""

@@ -137,6 +137,7 @@ def _build_workflow_graph(workflow: Workflow) -> UiPathRuntimeGraph:
 
     executors: dict[str, Executor] = workflow.executors
     start_id: str = workflow.start_executor_id
+    executor_ids: set[str] = set(executors.keys())
 
     # Add a node for each executor
     for exec_id, executor in executors.items():
@@ -154,7 +155,9 @@ def _build_workflow_graph(workflow: Workflow) -> UiPathRuntimeGraph:
         if isinstance(executor, AgentExecutor):
             inner_agent: BaseAgent | None = getattr(executor, "_agent", None)
             if inner_agent is not None:
-                _add_executor_tool_nodes(exec_id, inner_agent, nodes, edges)
+                _add_executor_tool_nodes(
+                    exec_id, inner_agent, nodes, edges, executor_ids
+                )
 
     # Connect __start__ → start executor
     edges.append(UiPathRuntimeEdge(source="__start__", target=start_id, label="input"))
@@ -195,19 +198,35 @@ def _build_workflow_graph(workflow: Workflow) -> UiPathRuntimeGraph:
     return UiPathRuntimeGraph(nodes=nodes, edges=edges)
 
 
+def _is_handoff_tool(tool_name: str, executor_ids: set[str]) -> bool:
+    """Check if a tool is a handoff tool by matching against executor IDs."""
+    if not tool_name.startswith("handoff_to_"):
+        return False
+    target = tool_name[len("handoff_to_"):]
+    return target in executor_ids
+
+
 def _add_executor_tool_nodes(
     executor_id: str,
     agent: BaseAgent,
     nodes: list[UiPathRuntimeNode],
     edges: list[UiPathRuntimeEdge],
+    executor_ids: set[str],
 ) -> None:
-    """Add tool nodes for an executor's wrapped agent's tools."""
+    """Add tool nodes for an executor's wrapped agent's tools.
+
+    Handoff tools (tools that transfer control to another executor) are
+    excluded since they are already represented as edges between nodes.
+    """
     tools = get_agent_tools(agent)
     if not tools:
         return
 
     tool_names = [get_tool_name(t) for t in tools]
     tool_names = [n for n in tool_names if n]
+
+    # Filter out handoff tools — they are represented as edges, not tool nodes
+    tool_names = [n for n in tool_names if not _is_handoff_tool(n, executor_ids)]
 
     if tool_names:
         tools_node_id = f"{executor_id}_tools"

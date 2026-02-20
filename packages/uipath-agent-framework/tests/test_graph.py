@@ -300,6 +300,74 @@ class TestWorkflowGraph:
         assert ("researcher", "researcher_tools") in edge_pairs
         assert ("researcher_tools", "researcher") in edge_pairs
 
+    def test_handoff_tools_excluded_from_tool_nodes(self):
+        """Handoff tools are not shown as tool nodes — they are edges."""
+
+        def handoff_to_billing():
+            pass
+
+        handoff_to_billing.__name__ = "handoff_to_billing"
+
+        def handoff_to_tech():
+            pass
+
+        handoff_to_tech.__name__ = "handoff_to_tech"
+
+        triage_agent = _make_agent(
+            name="triage", tools=[handoff_to_billing, handoff_to_tech]
+        )
+        executors = {
+            "triage": _make_executor("triage", agent=triage_agent),
+            "billing": _make_executor("billing"),
+            "tech": _make_executor("tech"),
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="triage",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        node_ids = {n.id for n in graph.nodes}
+        assert "triage_tools" not in node_ids
+
+    def test_mixed_handoff_and_regular_tools(self):
+        """Only non-handoff tools appear in tool nodes when mixed with handoffs."""
+
+        def handoff_to_billing():
+            pass
+
+        handoff_to_billing.__name__ = "handoff_to_billing"
+
+        def search_docs():
+            pass
+
+        search_docs.__name__ = "search_docs"
+
+        triage_agent = _make_agent(
+            name="triage", tools=[handoff_to_billing, search_docs]
+        )
+        executors = {
+            "triage": _make_executor("triage", agent=triage_agent),
+            "billing": _make_executor("billing"),
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="triage",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        node_ids = {n.id for n in graph.nodes}
+        assert "triage_tools" in node_ids
+
+        tools_node = next(n for n in graph.nodes if n.id == "triage_tools")
+        assert tools_node.metadata is not None
+        assert tools_node.metadata["tool_names"] == ["search_docs"]
+        assert tools_node.metadata["tool_count"] == 1
+
     def test_workflow_edge_condition_labels(self):
         """Conditional edges include condition_name as label."""
         executors = {

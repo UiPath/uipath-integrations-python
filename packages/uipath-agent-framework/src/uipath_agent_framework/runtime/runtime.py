@@ -99,11 +99,14 @@ class UiPathAgentFrameworkRuntime:
         to run before re-arming its breakpoint.  The count is incremented
         every time the same executor hits a breakpoint again (cyclic
         graphs, GroupChat orchestrators).
+
+        checkpoint_id may be None when the breakpoint fired before any
+        new checkpoint was created (e.g. the very first executor of a
+        fresh turn).  In that case the resume path will replay from
+        original_input with skip counts instead of restoring a checkpoint.
         """
         if not self._resumable_storage:
             return
-        if checkpoint_id is None:
-            checkpoint_id = await self._get_latest_checkpoint_id()
         state = {
             "skip_nodes": dict(self._breakpoint_skip_nodes),
             "last_breakpoint_node": self._last_breakpoint_node,
@@ -308,13 +311,31 @@ class UiPathAgentFrameworkRuntime:
 
             workflow = self.agent.workflow
 
+            # Capture the latest checkpoint BEFORE workflow.run() so we can
+            # detect whether a NEW checkpoint was created during this execution.
+            # Without this, breakpoints that fire before any new checkpoint
+            # (e.g. the first executor of turn 2) would save a stale
+            # checkpoint from the previous turn, causing the resume to
+            # restore completed state instead of replaying from input.
+            baseline_checkpoint_id = await self._get_latest_checkpoint_id()
+
             if is_resuming and input is not None:
                 # HITL resume: checkpoint restores executor state (including session)
                 self._resume_responses = await self._convert_resume_responses(input)
 
-                # Inject breakpoints (no skip needed for HITL resume)
+                # Inject breakpoints with accumulated skip counts so that
+                # breakpoints don't re-fire on the same executor after HITL
+                # approval (prevents breakpoint→HITL→breakpoint loop).
                 if options and options.breakpoints:
-                    inject_breakpoint_middleware(self.agent, options.breakpoints)
+                    await self._load_breakpoint_state()
+                    inject_breakpoint_middleware(
+                        self.agent,
+                        options.breakpoints,
+                        self._get_breakpoint_skip(),
+                    )
+                    # _load_breakpoint_state sets _last_checkpoint_id as a
+                    # side effect. Clear it so it doesn't contaminate later runs.
+                    self._last_checkpoint_id = None
 
                 if self._resume_responses:
                     checkpoint_id = await self._get_latest_checkpoint_id()
@@ -419,8 +440,21 @@ class UiPathAgentFrameworkRuntime:
                 )
                 self._last_breakpoint_node = node_id
                 original_input = self._prepare_input(input) if not is_resuming else ""
+                # Only save checkpoint_id if it was created during THIS run.
+                # If latest == baseline, no new checkpoint was created (e.g.
+                # breakpoint on the first executor of a fresh turn) — save
+                # the checkpoint we resumed from (if any) so we don't lose
+                # it and replay from scratch on the next resume.
+                # For fresh turns _resumed_from_checkpoint_id is None, which
+                # correctly prevents using a stale checkpoint from the
+                # previous turn.
+                effective_checkpoint = (
+                    latest_checkpoint
+                    if latest_checkpoint != baseline_checkpoint_id
+                    else self._resumed_from_checkpoint_id
+                )
                 await self._save_breakpoint_state(
-                    original_input, checkpoint_id=latest_checkpoint
+                    original_input, checkpoint_id=effective_checkpoint
                 )
                 return create_breakpoint_result(e)
             return self._create_suspended_result(e)
@@ -444,9 +478,20 @@ class UiPathAgentFrameworkRuntime:
                 self._resume_responses = await self._convert_resume_responses(input)
                 user_input = self._prepare_input(None)
 
-                # Inject breakpoints (no skip needed for HITL resume)
+                # Inject breakpoints with accumulated skip counts so that
+                # breakpoints don't re-fire on the same executor after HITL
+                # approval (prevents breakpoint→HITL→breakpoint loop).
                 if options and options.breakpoints:
-                    inject_breakpoint_middleware(self.agent, options.breakpoints)
+                    await self._load_breakpoint_state()
+                    inject_breakpoint_middleware(
+                        self.agent,
+                        options.breakpoints,
+                        self._get_breakpoint_skip(),
+                    )
+                    # _load_breakpoint_state sets _last_checkpoint_id as a
+                    # side effect. Clear it so _stream_workflow doesn't
+                    # mistake a subsequent fresh run for a breakpoint resume.
+                    self._last_checkpoint_id = None
 
             elif is_resuming:
                 # Breakpoint resume: restore original_input and session
@@ -465,8 +510,9 @@ class UiPathAgentFrameworkRuntime:
                     )
 
             else:
-                # Fresh run
+                # Fresh run — clear stale resume state from previous turns
                 self._resume_responses = None
+                self._last_checkpoint_id = None
                 user_input = self._prepare_input(input)
 
                 # Load session for multi-turn conversation history
@@ -518,6 +564,10 @@ class UiPathAgentFrameworkRuntime:
                     phase=UiPathRuntimeStatePhase.COMPLETED,
                 )
             self._pending_tool_nodes.clear()
+
+        # Capture the latest checkpoint BEFORE workflow.run() so we can
+        # detect whether a NEW checkpoint was created during this execution.
+        baseline_checkpoint_id = await self._get_latest_checkpoint_id()
 
         # Choose workflow.run() mode based on resume type
         if self._resume_responses:
@@ -609,20 +659,21 @@ class UiPathAgentFrameworkRuntime:
                         ):
                             if tool_event.phase not in emitted_phases:
                                 # Track pending tool nodes
-                                if (
-                                    tool_event.phase
-                                    == UiPathRuntimeStatePhase.STARTED
-                                ):
-                                    self._pending_tool_nodes.add(
-                                        tool_event.node_name
-                                    )
-                                elif (
-                                    tool_event.phase
-                                    == UiPathRuntimeStatePhase.COMPLETED
-                                ):
-                                    self._pending_tool_nodes.discard(
-                                        tool_event.node_name
-                                    )
+                                if tool_event.node_name:
+                                    if (
+                                        tool_event.phase
+                                        == UiPathRuntimeStatePhase.STARTED
+                                    ):
+                                        self._pending_tool_nodes.add(
+                                            tool_event.node_name
+                                        )
+                                    elif (
+                                        tool_event.phase
+                                        == UiPathRuntimeStatePhase.COMPLETED
+                                    ):
+                                        self._pending_tool_nodes.discard(
+                                            tool_event.node_name
+                                        )
                                 yield tool_event
                     yield UiPathRuntimeStateEvent(
                         payload=self._serialize_event_data(
@@ -637,14 +688,15 @@ class UiPathAgentFrameworkRuntime:
                         event.data, executor_id
                     )
                     for tool_event in tool_events:
-                        executor_tool_phases.setdefault(
-                            executor_id, set()
-                        ).add(tool_event.phase)
+                        executor_tool_phases.setdefault(executor_id, set()).add(
+                            tool_event.phase
+                        )
                         # Track pending tool nodes across stream iterations
-                        if tool_event.phase == UiPathRuntimeStatePhase.STARTED:
-                            self._pending_tool_nodes.add(tool_event.node_name)
-                        elif tool_event.phase == UiPathRuntimeStatePhase.COMPLETED:
-                            self._pending_tool_nodes.discard(tool_event.node_name)
+                        if tool_event.node_name:
+                            if tool_event.phase == UiPathRuntimeStatePhase.STARTED:
+                                self._pending_tool_nodes.add(tool_event.node_name)
+                            elif tool_event.phase == UiPathRuntimeStatePhase.COMPLETED:
+                                self._pending_tool_nodes.discard(tool_event.node_name)
                         yield tool_event
                     for msg_event in self._extract_workflow_messages(event.data):
                         yield UiPathRuntimeMessageEvent(payload=msg_event)
@@ -691,8 +743,16 @@ class UiPathAgentFrameworkRuntime:
                     self._breakpoint_skip_nodes.get(node_id, 0) + 1
                 )
                 self._last_breakpoint_node = node_id
+                # Only save checkpoint_id if it was created during THIS run.
+                # Fall back to the checkpoint we resumed from (if any) to
+                # avoid replaying from scratch on the next resume.
+                effective_checkpoint = (
+                    latest_checkpoint
+                    if latest_checkpoint != baseline_checkpoint_id
+                    else self._resumed_from_checkpoint_id
+                )
                 await self._save_breakpoint_state(
-                    user_input, checkpoint_id=latest_checkpoint
+                    user_input, checkpoint_id=effective_checkpoint
                 )
                 yield create_breakpoint_result(e)
             else:

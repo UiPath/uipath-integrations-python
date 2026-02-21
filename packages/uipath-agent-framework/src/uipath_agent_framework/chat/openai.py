@@ -8,7 +8,6 @@ URL-rewriting httpx transport, then passes the pre-configured
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -103,7 +102,7 @@ class UiPathOpenAIChatClient(OpenAIChatClient):
             **kwargs,
         )
 
-    def _prepare_tools_for_openai(self, tools: Sequence[Any]) -> dict[str, Any]:
+    def _prepare_tools_for_openai(self, tools: Any) -> dict[str, Any]:
         """Prepare tools for the OpenAI Chat Completions API.
 
         Extends the base implementation to convert plain callables to

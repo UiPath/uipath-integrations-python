@@ -27,21 +27,10 @@ from agent_framework.orchestrations import (
     GroupChatBuilder,
     HandoffBuilder,
 )
-from openai.types import CompletionUsage
-from openai.types.chat.chat_completion import ChatCompletion, Choice
-from openai.types.chat.chat_completion_chunk import (
-    ChatCompletionChunk,
-    ChoiceDelta,
-    ChoiceDeltaToolCall,
-    ChoiceDeltaToolCallFunction,
-)
-from openai.types.chat.chat_completion_chunk import (
-    Choice as ChunkChoice,
-)
-from openai.types.chat.chat_completion_message import ChatCompletionMessage
-from openai.types.chat.chat_completion_message_tool_call import (
-    ChatCompletionMessageToolCall,
-    Function,
+from conftest import (
+    extract_system_text,
+    make_mock_response,
+    make_tool_call_response,
 )
 from uipath.runtime.debug import (
     UiPathDebugProtocol,
@@ -58,168 +47,6 @@ from uipath_agent_framework.runtime.runtime import UiPathAgentFrameworkRuntime
 # Safety limit: if the debug loop exceeds this many resume calls,
 # the test fails — this means breakpoints are stuck in a loop.
 MAX_RESUME_CALLS = 50
-
-
-def _extract_system_text(messages: list[dict[str, Any]]) -> str:
-    """Extract system/developer message text from OpenAI-format messages.
-
-    The OpenAI client sends content as a list of content parts:
-    [{"type": "text", "text": "..."}]
-    """
-    for msg in messages:
-        if not isinstance(msg, dict):
-            continue
-        if msg.get("role") not in ("system", "developer"):
-            continue
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = []
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
-                    parts.append(part.get("text", ""))
-            return " ".join(parts)
-    return ""
-
-
-def _make_chat_completion(text: str) -> ChatCompletion:
-    """Create a mock OpenAI ChatCompletion response."""
-    return ChatCompletion(
-        id="test-completion",
-        choices=[
-            Choice(
-                index=0,
-                message=ChatCompletionMessage(role="assistant", content=text),
-                finish_reason="stop",
-            )
-        ],
-        created=0,
-        model="mock-model",
-        object="chat.completion",
-        usage=CompletionUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
-    )
-
-
-async def _make_streaming_response(text: str):
-    """Create an async iterable of ChatCompletionChunks for streaming."""
-    # Yield the content in a single chunk
-    yield ChatCompletionChunk(
-        id="test-chunk",
-        choices=[
-            ChunkChoice(
-                index=0,
-                delta=ChoiceDelta(role="assistant", content=text),
-                finish_reason=None,
-            )
-        ],
-        created=0,
-        model="mock-model",
-        object="chat.completion.chunk",
-    )
-    # Yield the stop chunk
-    yield ChatCompletionChunk(
-        id="test-chunk",
-        choices=[
-            ChunkChoice(
-                index=0,
-                delta=ChoiceDelta(),
-                finish_reason="stop",
-            )
-        ],
-        created=0,
-        model="mock-model",
-        object="chat.completion.chunk",
-        usage=CompletionUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
-    )
-
-
-def _make_mock_response(text: str, stream: bool = False):
-    """Return either a ChatCompletion or a streaming async iterable."""
-    if stream:
-        return _make_streaming_response(text)
-    return _make_chat_completion(text)
-
-
-def _make_tool_call_completion(tool_name: str, arguments: str = "{}") -> ChatCompletion:
-    """Create a mock ChatCompletion with a tool call."""
-    return ChatCompletion(
-        id="test-completion",
-        choices=[
-            Choice(
-                index=0,
-                message=ChatCompletionMessage(
-                    role="assistant",
-                    content=None,
-                    tool_calls=[
-                        ChatCompletionMessageToolCall(
-                            id=f"call_{tool_name}",
-                            function=Function(name=tool_name, arguments=arguments),
-                            type="function",
-                        )
-                    ],
-                ),
-                finish_reason="tool_calls",
-            )
-        ],
-        created=0,
-        model="mock-model",
-        object="chat.completion",
-        usage=CompletionUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
-    )
-
-
-async def _make_streaming_tool_call(tool_name: str, arguments: str = "{}"):
-    """Create streaming chunks for a tool call response."""
-    yield ChatCompletionChunk(
-        id="test-chunk",
-        choices=[
-            ChunkChoice(
-                index=0,
-                delta=ChoiceDelta(
-                    role="assistant",
-                    tool_calls=[
-                        ChoiceDeltaToolCall(
-                            index=0,
-                            id=f"call_{tool_name}",
-                            function=ChoiceDeltaToolCallFunction(
-                                name=tool_name,
-                                arguments=arguments,
-                            ),
-                            type="function",
-                        )
-                    ],
-                ),
-                finish_reason=None,
-            )
-        ],
-        created=0,
-        model="mock-model",
-        object="chat.completion.chunk",
-    )
-    yield ChatCompletionChunk(
-        id="test-chunk",
-        choices=[
-            ChunkChoice(
-                index=0,
-                delta=ChoiceDelta(),
-                finish_reason="tool_calls",
-            )
-        ],
-        created=0,
-        model="mock-model",
-        object="chat.completion.chunk",
-        usage=CompletionUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
-    )
-
-
-def _make_tool_call_response(
-    tool_name: str, arguments: str = "{}", stream: bool = False
-):
-    """Return either a tool call ChatCompletion or streaming chunks."""
-    if stream:
-        return _make_streaming_tool_call(tool_name, arguments)
-    return _make_tool_call_completion(tool_name, arguments)
 
 
 def _make_debug_bridge(**overrides: Any) -> UiPathDebugProtocol:
@@ -276,7 +103,7 @@ class TestGroupChatBreakpoints:
             """Mock LLM: orchestrator returns structured JSON, participants return text."""
             messages = kwargs.get("messages", [])
             is_stream = kwargs.get("stream", False)
-            system_msg = _extract_system_text(messages)
+            system_msg = extract_system_text(messages)
 
             if (
                 "coordinate" in system_msg.lower()
@@ -319,7 +146,7 @@ class TestGroupChatBreakpoints:
                 response_text = "OK"
                 llm_call_log.append({"agent": "unknown", "response": response_text})
 
-            return _make_mock_response(response_text, stream=is_stream)
+            return make_mock_response(response_text, stream=is_stream)
 
         # --- Build agents exactly like the group-chat sample ---
         mock_openai = AsyncMock()
@@ -465,7 +292,7 @@ class TestGroupChatBreakpoints:
         async def mock_create(**kwargs: Any):
             messages = kwargs.get("messages", [])
             is_stream = kwargs.get("stream", False)
-            system_msg = _extract_system_text(messages)
+            system_msg = extract_system_text(messages)
 
             if (
                 "coordinate" in system_msg.lower()
@@ -481,8 +308,8 @@ class TestGroupChatBreakpoints:
                         "final_message": None,
                     }
                 )
-                return _make_mock_response(text, stream=is_stream)
-            return _make_mock_response("Some response text.", stream=is_stream)
+                return make_mock_response(text, stream=is_stream)
+            return make_mock_response("Some response text.", stream=is_stream)
 
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
@@ -586,7 +413,7 @@ class TestGroupChatBreakpoints:
         async def mock_create(**kwargs: Any):
             messages = kwargs.get("messages", [])
             is_stream = kwargs.get("stream", False)
-            system_msg = _extract_system_text(messages)
+            system_msg = extract_system_text(messages)
 
             if (
                 "coordinate" in system_msg.lower()
@@ -602,8 +429,8 @@ class TestGroupChatBreakpoints:
                         "final_message": None,
                     }
                 )
-                return _make_mock_response(text, stream=is_stream)
-            return _make_mock_response("Some response text.", stream=is_stream)
+                return make_mock_response(text, stream=is_stream)
+            return make_mock_response("Some response text.", stream=is_stream)
 
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
@@ -694,7 +521,7 @@ class TestQuickstartWorkflowBreakpoints:
         async def mock_create(**kwargs: Any):
             is_stream = kwargs.get("stream", False)
             llm_call_log.append("weather_agent")
-            return _make_mock_response(
+            return make_mock_response(
                 "The weather in New York is 72°F and sunny.",
                 stream=is_stream,
             )
@@ -789,27 +616,27 @@ class TestConcurrentBreakpoints:
         async def mock_create(**kwargs: Any):
             messages = kwargs.get("messages", [])
             is_stream = kwargs.get("stream", False)
-            system_msg = _extract_system_text(messages)
+            system_msg = extract_system_text(messages)
 
             if "sentiment" in system_msg.lower():
                 llm_call_log.append("sentiment")
-                return _make_mock_response(
+                return make_mock_response(
                     "Sentiment: positive (0.85)", stream=is_stream
                 )
             elif "topic" in system_msg.lower() or "entit" in system_msg.lower():
                 llm_call_log.append("topic")
-                return _make_mock_response(
+                return make_mock_response(
                     "Topics: AI, safety, alignment", stream=is_stream
                 )
             elif "summar" in system_msg.lower():
                 llm_call_log.append("summarizer")
-                return _make_mock_response(
+                return make_mock_response(
                     "Summary: A discussion about AI safety.",
                     stream=is_stream,
                 )
             else:
                 llm_call_log.append("unknown")
-                return _make_mock_response("OK", stream=is_stream)
+                return make_mock_response("OK", stream=is_stream)
 
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
@@ -918,36 +745,36 @@ class TestHandoffBreakpoints:
         async def mock_create(**kwargs: Any):
             messages = kwargs.get("messages", [])
             is_stream = kwargs.get("stream", False)
-            system_msg = _extract_system_text(messages)
+            system_msg = extract_system_text(messages)
 
             if "route" in system_msg.lower() or "triage" in system_msg.lower():
                 llm_call_log.append("triage")
                 # Triage hands off to billing_agent via tool call
-                return _make_tool_call_response(
+                return make_tool_call_response(
                     "handoff_to_billing_agent", stream=is_stream
                 )
             elif "billing" in system_msg.lower():
                 llm_call_log.append("billing_agent")
-                return _make_mock_response(
+                return make_mock_response(
                     "I've resolved your billing issue. Your account "
                     "has been credited $50.",
                     stream=is_stream,
                 )
             elif "tech" in system_msg.lower():
                 llm_call_log.append("tech_agent")
-                return _make_mock_response(
+                return make_mock_response(
                     "I can help with your technical issue.",
                     stream=is_stream,
                 )
             elif "return" in system_msg.lower() or "refund" in system_msg.lower():
                 llm_call_log.append("returns_agent")
-                return _make_mock_response(
+                return make_mock_response(
                     "I'll process your return right away.",
                     stream=is_stream,
                 )
             else:
                 llm_call_log.append("unknown")
-                return _make_mock_response("How can I help you?", stream=is_stream)
+                return make_mock_response("How can I help you?", stream=is_stream)
 
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
@@ -1087,28 +914,28 @@ class TestHitlWorkflowBreakpoints:
         async def mock_create(**kwargs: Any):
             messages = kwargs.get("messages", [])
             is_stream = kwargs.get("stream", False)
-            system_msg = _extract_system_text(messages)
+            system_msg = extract_system_text(messages)
 
             if "route" in system_msg.lower() or "triage" in system_msg.lower():
                 llm_call_log.append("triage")
-                return _make_tool_call_response(
+                return make_tool_call_response(
                     "handoff_to_billing_agent", stream=is_stream
                 )
             elif "billing" in system_msg.lower():
                 llm_call_log.append("billing_agent")
-                return _make_mock_response(
+                return make_mock_response(
                     "Your billing issue has been resolved.",
                     stream=is_stream,
                 )
             elif "return" in system_msg.lower() or "refund" in system_msg.lower():
                 llm_call_log.append("returns_agent")
-                return _make_mock_response(
+                return make_mock_response(
                     "Your refund has been processed.",
                     stream=is_stream,
                 )
             else:
                 llm_call_log.append("unknown")
-                return _make_mock_response("How can I help you?", stream=is_stream)
+                return make_mock_response("How can I help you?", stream=is_stream)
 
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create

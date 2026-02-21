@@ -407,7 +407,7 @@ class SqliteCheckpointStorage:
         conn = await self._storage._get_conn()
         async with self._storage._lock:
             cursor = await conn.execute(
-                "SELECT checkpoint_data FROM checkpoints WHERE workflow_name = ? ORDER BY timestamp DESC LIMIT 1",
+                "SELECT checkpoint_data FROM checkpoints WHERE workflow_name = ? ORDER BY timestamp DESC, rowid DESC LIMIT 1",
                 (workflow_name,),
             )
             row = await cursor.fetchone()

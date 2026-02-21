@@ -18,7 +18,7 @@ The debug UI sends graph node IDs which are resolved to executor IDs:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 from uuid import uuid4
 
@@ -123,7 +123,10 @@ class BreakpointMiddleware(FunctionMiddleware):
         input_value: Any = None
         if context.arguments is not None:
             try:
-                input_value = context.arguments.model_dump()
+                if isinstance(context.arguments, Mapping):
+                    input_value = dict(context.arguments)
+                else:
+                    input_value = context.arguments.model_dump()
             except Exception:
                 input_value = str(context.arguments)
 

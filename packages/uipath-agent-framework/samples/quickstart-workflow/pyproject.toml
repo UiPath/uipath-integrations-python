@@ -8,7 +8,7 @@ requires-python = ">=3.11"
 dependencies = [
     "uipath",
     "uipath-agent-framework",
-    "agent-framework-core>=1.0.0b260212",
+    "agent-framework-core>=1.0.0rc1",
 ]
 
 [dependency-groups]

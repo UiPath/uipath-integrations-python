@@ -5,7 +5,7 @@ that need human approval before execution.
 
 Example::
 
-    from uipath_agent_framework.chat import requires_approval
+    from uipath_agent_framework.chat.tools import requires_approval
 
     @requires_approval
     def transfer_funds(from_account: str, to_account: str, amount: float) -> str:
@@ -22,18 +22,18 @@ from agent_framework import FunctionTool, tool
 
 
 @overload
-def requires_approval(func: Callable[..., Any]) -> FunctionTool[Any]: ...
+def requires_approval(func: Callable[..., Any]) -> FunctionTool: ...
 
 
 @overload
 def requires_approval(
     func: None = None,
-) -> Callable[[Callable[..., Any]], FunctionTool[Any]]: ...
+) -> Callable[[Callable[..., Any]], FunctionTool]: ...
 
 
 def requires_approval(
     func: Callable[..., Any] | None = None,
-) -> FunctionTool[Any] | Callable[[Callable[..., Any]], FunctionTool[Any]]:
+) -> FunctionTool | Callable[[Callable[..., Any]], FunctionTool]:
     """Decorator that marks a tool function as requiring human approval.
 
     When the agent calls a tool decorated with ``@requires_approval``,
@@ -61,7 +61,7 @@ def requires_approval(
     if func is not None:
         return tool(func, approval_mode="always_require")
 
-    def decorator(fn: Callable[..., Any]) -> FunctionTool[Any]:
+    def decorator(fn: Callable[..., Any]) -> FunctionTool:
         return tool(fn, approval_mode="always_require")
 
     return decorator

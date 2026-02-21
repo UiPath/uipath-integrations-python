@@ -13,8 +13,10 @@ from agent_framework import (
     Message,
     WorkflowAgent,
     WorkflowRunResult,
+    WorkflowRunState,
 )
 from pydantic import BaseModel
+from uipath.core.chat import UiPathConversationToolCallConfirmationValue
 from uipath.core.serialization import serialize_json
 from uipath.runtime import (
     UiPathExecuteOptions,
@@ -169,6 +171,93 @@ class UiPathAgentFrameworkRuntime:
             if isinstance(executor, AgentExecutor):
                 executor._session = session
 
+    # ------------------------------------------------------------------
+    # HITL helpers (tool approval flow)
+    # ------------------------------------------------------------------
+
+    async def _save_hitl_state(self, request_info_map: dict[str, Any]) -> None:
+        """Persist original function_approval_request Content objects for resume."""
+        if not self._resumable_storage:
+            return
+        serialized = {}
+        for request_id, content in request_info_map.items():
+            if (
+                isinstance(content, Content)
+                and content.type == "function_approval_request"
+            ):
+                serialized[request_id] = content.to_dict()
+        if serialized:
+            await self._resumable_storage.set_value(
+                self.runtime_id, "hitl", "state", serialized
+            )
+
+    async def _load_hitl_state(self) -> dict[str, Content] | None:
+        """Load stored HITL state for converting resume responses."""
+        if not self._resumable_storage:
+            return None
+        state = await self._resumable_storage.get_value(
+            self.runtime_id, "hitl", "state"
+        )
+        if state and isinstance(state, dict):
+            return {rid: Content.from_dict(data) for rid, data in state.items()}
+        return None
+
+    @staticmethod
+    def _convert_to_hitl_output(request_info_map: dict[str, Any]) -> dict[str, Any]:
+        """Convert request_info Content objects to UiPathConversationToolCallConfirmationValue."""
+        output = {}
+        for request_id, content in request_info_map.items():
+            if (
+                isinstance(content, Content)
+                and content.type == "function_approval_request"
+            ):
+                fc = content.function_call  # nested Content(function_call)
+                if fc is None:
+                    continue
+                args = fc.arguments
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                elif not isinstance(args, dict):
+                    args = {}
+                output[request_id] = UiPathConversationToolCallConfirmationValue(
+                    tool_call_id=fc.call_id or "",
+                    tool_name=fc.name or "",
+                    input_schema={},
+                    input_value=args,
+                )
+            else:
+                output[request_id] = content  # pass through unknown types
+        return output
+
+    async def _convert_resume_responses(self, input: dict[str, Any]) -> dict[str, Any]:
+        """Convert CAS approval responses to framework Content objects."""
+        hitl_state = await self._load_hitl_state()
+        if not hitl_state:
+            return input  # no stored state, pass through
+
+        converted = {}
+        for request_id, response_data in input.items():
+            original = hitl_state.get(request_id)
+            if (
+                original
+                and isinstance(original, Content)
+                and original.type == "function_approval_request"
+            ):
+                # Extract approval from CAS response format:
+                # {"type": "uipath_cas_tool_call_confirmation", "value": {"approved": bool}}
+                approved = False
+                if isinstance(response_data, dict):
+                    value = response_data.get("value", response_data)
+                    if isinstance(value, dict):
+                        approved = value.get("approved", False)
+                converted[request_id] = original.to_function_approval_response(approved)
+            else:
+                converted[request_id] = response_data
+        return converted
+
     async def execute(
         self,
         input: dict[str, Any] | None = None,
@@ -183,7 +272,7 @@ class UiPathAgentFrameworkRuntime:
 
             if is_resuming and input is not None:
                 # HITL resume: checkpoint restores executor state (including session)
-                self._resume_responses = input
+                self._resume_responses = await self._convert_resume_responses(input)
 
                 # Inject breakpoints (no skip needed for HITL resume)
                 if options and options.breakpoints:
@@ -243,6 +332,23 @@ class UiPathAgentFrameworkRuntime:
                     checkpoint_storage=self._checkpoint_storage,
                 )
 
+            # Check for HITL suspension (framework's request_info mechanism)
+            request_info_events = result.get_request_info_events()
+            hitl_requests = {
+                e.request_id: e.data
+                for e in request_info_events
+                if isinstance(e.data, Content)
+                and e.data.type == "function_approval_request"
+            }
+            if hitl_requests:
+                await self._save_hitl_state(hitl_requests)
+                if session is not None:
+                    await self._save_session(session)
+                return UiPathRuntimeResult(
+                    output=self._convert_to_hitl_output(hitl_requests),
+                    status=UiPathRuntimeStatus.SUSPENDED,
+                )
+
             if session is not None:
                 await self._save_session(session)
             output = self._extract_workflow_output(result)
@@ -291,7 +397,7 @@ class UiPathAgentFrameworkRuntime:
 
             if is_resuming and input is not None:
                 # HITL resume: input contains response data
-                self._resume_responses = input
+                self._resume_responses = await self._convert_resume_responses(input)
                 user_input = self._prepare_input(None)
 
                 # Inject breakpoints (no skip needed for HITL resume)
@@ -412,7 +518,8 @@ class UiPathAgentFrameworkRuntime:
         try:
             async for event in response_stream:
                 if event.type == "request_info":
-                    request_info_map[event.request_id] = event.data
+                    data = event.data
+                    request_info_map[event.request_id] = data
                 elif event.type == "executor_invoked":
                     # Skip the duplicate for the start executor we already emitted
                     if (
@@ -460,7 +567,7 @@ class UiPathAgentFrameworkRuntime:
                 # Detect workflow suspension via state
                 if (
                     event.type == "status"
-                    and str(event.state) == "IDLE_WITH_PENDING_REQUESTS"
+                    and event.state == WorkflowRunState.IDLE_WITH_PENDING_REQUESTS
                 ):
                     is_suspended = True
         except AgentInterruptException as e:
@@ -515,9 +622,19 @@ class UiPathAgentFrameworkRuntime:
         if session is not None:
             await self._save_session(session)
 
-        if is_suspended and request_info_map:
+        # Filter to only include HITL approval requests in SUSPENDED output.
+        # Other request_info events (e.g. HandoffAgentUserRequest) are part of
+        # the workflow's multi-turn mechanism and handled separately.
+        hitl_requests = {
+            rid: data
+            for rid, data in request_info_map.items()
+            if isinstance(data, Content) and data.type == "function_approval_request"
+        }
+        if is_suspended and hitl_requests:
+            hitl_output = self._convert_to_hitl_output(hitl_requests)
+            await self._save_hitl_state(hitl_requests)
             yield UiPathRuntimeResult(
-                output=request_info_map,
+                output=hitl_output,
                 status=UiPathRuntimeStatus.SUSPENDED,
             )
         else:
@@ -603,11 +720,10 @@ class UiPathAgentFrameworkRuntime:
                     )
         return tool_events
 
-    def _extract_workflow_messages(self, data: Any) -> list[Any]:
-        """Extract UiPath conversation message events from workflow output data."""
-        events: list[Any] = []
+    @staticmethod
+    def _extract_contents(data: Any) -> list[Any]:
+        """Extract Content objects from any workflow data type."""
         contents: list[Any] = []
-
         if isinstance(data, AgentResponseUpdate):
             contents = list(data.contents or [])
         elif isinstance(data, AgentResponse):
@@ -617,13 +733,18 @@ class UiPathAgentFrameworkRuntime:
             contents = list(data.contents or [])
         elif isinstance(data, list):
             for item in data:
-                events.extend(self._extract_workflow_messages(item))
-            return events
+                contents.extend(UiPathAgentFrameworkRuntime._extract_contents(item))
+        return contents
 
-        for content in contents:
+    def _extract_workflow_messages(self, data: Any) -> list[Any]:
+        """Extract UiPath conversation message events from workflow output data."""
+        events: list[Any] = []
+        for content in self._extract_contents(data):
             if isinstance(content, Content):
+                # Skip HITL approval requests — handled by the suspension mechanism
+                if content.type == "function_approval_request":
+                    continue
                 events.extend(self.chat.map_streaming_content(content))
-
         return events
 
     def _extract_workflow_output(self, result: WorkflowRunResult) -> Any:

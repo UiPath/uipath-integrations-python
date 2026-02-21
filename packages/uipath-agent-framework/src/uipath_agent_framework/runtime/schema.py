@@ -43,6 +43,10 @@ def _extract_output_schema(agent: BaseAgent) -> dict[str, Any] | None:
 
     Checks if the output executor's inner agent has a response_format set to a
     Pydantic BaseModel. If so, returns its JSON schema as the output schema.
+
+    For orchestrations (e.g. SequentialBuilder) where output executors are
+    framework-internal adapters, falls back to scanning all workflow executors
+    and returns the schema from the last AgentExecutor with a response_format.
     """
     if not isinstance(agent, WorkflowAgent):
         return None
@@ -69,7 +73,33 @@ def _extract_output_schema(agent: BaseAgent) -> dict[str, Any] | None:
         except Exception:
             continue
 
-    return None
+    # Fallback: scan all workflow executors for the last AgentExecutor
+    # with a response_format. Needed for orchestrations like sequential
+    # where the output executor is an internal adapter.
+    try:
+        all_executors = list(agent.workflow.executors.values())
+    except Exception:
+        return None
+
+    result: dict[str, Any] | None = None
+    for executor in all_executors:
+        if not isinstance(executor, AgentExecutor):
+            continue
+        inner_agent = executor._agent
+        if not isinstance(inner_agent, Agent):
+            continue
+        response_format = inner_agent.default_options.get("response_format")
+        if response_format is None:
+            continue
+        try:
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
+                result = response_format.model_json_schema()
+        except Exception:
+            continue
+
+    return result
 
 
 def _conversation_message_item_schema() -> dict[str, Any]:
@@ -192,7 +222,9 @@ def _build_workflow_graph(workflow: Workflow) -> UiPathRuntimeGraph:
         )
 
         # AgentExecutors wrap a BaseAgent that may have tools
-        if isinstance(executor, AgentExecutor):
+        if isinstance(executor, AgentExecutor) and isinstance(
+            executor._agent, BaseAgent
+        ):
             _add_executor_tool_nodes(
                 exec_id, executor._agent, nodes, edges, executor_ids
             )

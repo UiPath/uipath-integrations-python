@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from agent_framework import BaseAgent, WorkflowBuilder
 from agent_framework.openai import OpenAIChatClient
+from agent_framework.orchestrations import SequentialBuilder
 from conftest import make_chunked_streaming_response, make_mock_response
 from pydantic import BaseModel
 from uipath.runtime import UiPathRuntimeResult
@@ -195,7 +196,16 @@ class TestStructuredOutputResult:
 
         result = asyncio.run(
             runtime.execute(
-                input={"messages": [{"role": "user", "contentParts": [{"data": {"inline": "Tell me about Tokyo"}}]}]}
+                input={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "contentParts": [
+                                {"data": {"inline": "Tell me about Tokyo"}}
+                            ],
+                        }
+                    ]
+                }
             )
         )
 
@@ -227,12 +237,21 @@ class TestStructuredOutputResult:
 
         result = asyncio.run(
             runtime.execute(
-                input={"messages": [{"role": "user", "contentParts": [{"data": {"inline": "Tell me about Tokyo"}}]}]}
+                input={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "contentParts": [
+                                {"data": {"inline": "Tell me about Tokyo"}}
+                            ],
+                        }
+                    ]
+                }
             )
         )
 
         assert result.status == UiPathRuntimeStatus.SUCCESSFUL
-        assert "messages" in result.output
+        assert isinstance(result.output, dict) and "messages" in result.output
 
     def test_streaming_returns_structured_output_dict(self):
         """Runtime.stream() returns structured dict from streaming tokens.
@@ -241,8 +260,8 @@ class TestStructuredOutputResult:
         AgentResponseUpdate tokens instead of a single AgentResponse.
         """
         mock_openai = AsyncMock()
-        mock_openai.chat.completions.create.side_effect = (
-            lambda *args, **kwargs: make_chunked_streaming_response(CITY_INFO_JSON)
+        mock_openai.chat.completions.create.side_effect = lambda *args, **kwargs: (
+            make_chunked_streaming_response(CITY_INFO_JSON)
         )
 
         client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
@@ -263,7 +282,16 @@ class TestStructuredOutputResult:
         async def run_stream():
             result = None
             async for event in runtime.stream(
-                input={"messages": [{"role": "user", "contentParts": [{"data": {"inline": "Tell me about Tokyo"}}]}]}
+                input={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "contentParts": [
+                                {"data": {"inline": "Tell me about Tokyo"}}
+                            ],
+                        }
+                    ]
+                }
             ):
                 if isinstance(event, UiPathRuntimeResult):
                     result = event
@@ -272,6 +300,154 @@ class TestStructuredOutputResult:
         result = asyncio.run(run_stream())
 
         assert result is not None
+        assert result.status == UiPathRuntimeStatus.SUCCESSFUL
+        assert isinstance(result.output, dict)
+        assert result.output["city"] == "Tokyo"
+        assert result.output["country"] == "Japan"
+        assert result.output["famous_for"] == ["sushi", "technology", "cherry blossoms"]
+        assert "messages" not in result.output
+
+
+class TestSequentialStructuredOutput:
+    """E2E tests for sequential workflow with structured output on the last agent."""
+
+    def _make_sequential_agent(self, mock_openai: AsyncMock):
+        """Create a sequential workflow where the last agent has response_format."""
+        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+
+        writer = client.as_agent(
+            name="writer",
+            instructions="Write about cities.",
+        )
+        reviewer = client.as_agent(
+            name="reviewer",
+            instructions="Review the writing.",
+        )
+        editor = client.as_agent(
+            name="editor",
+            instructions="Edit into structured format.",
+            default_options={"response_format": CityInfo},
+        )
+
+        workflow = SequentialBuilder(
+            participants=[writer, reviewer, editor],
+        ).build()
+        return workflow.as_agent(name="sequential_structured")
+
+    def test_schema_has_structured_output(self):
+        """get_schema() on a sequential workflow returns the CityInfo schema as output."""
+        mock_openai = AsyncMock()
+        agent = self._make_sequential_agent(mock_openai)
+        runtime = UiPathAgentFrameworkRuntime(agent=agent, entrypoint="agent")
+
+        schema = asyncio.run(runtime.get_schema())
+
+        assert schema.output["type"] == "object"
+        assert "city" in schema.output["properties"]
+        assert "country" in schema.output["properties"]
+        assert "famous_for" in schema.output["properties"]
+        assert "messages" not in schema.output.get("properties", {})
+
+    def test_streaming_returns_structured_output_dict(self):
+        """Sequential workflow streaming returns structured dict when the last
+        agent has response_format, not messages wrapper.
+
+        Simulates a real e2e flow: three agents run in sequence, the last one
+        produces structured JSON. The runtime should parse and return a dict.
+        """
+        mock_openai = AsyncMock()
+
+        call_idx = 0
+        texts = [
+            "Tokyo is an amazing, vibrant city in Japan!",
+            "Great draft. Consider adding population and famous landmarks.",
+            CITY_INFO_JSON,
+        ]
+
+        def mock_create(*args, **kwargs):
+            nonlocal call_idx
+            text = texts[call_idx]
+            call_idx += 1
+            return make_chunked_streaming_response(text)
+
+        mock_openai.chat.completions.create.side_effect = mock_create
+
+        agent = self._make_sequential_agent(mock_openai)
+
+        runtime = UiPathAgentFrameworkRuntime(agent=agent, entrypoint="agent")
+        runtime.chat = MagicMock()
+        runtime.chat.map_messages_to_input.return_value = "Tell me about Tokyo"
+        runtime.chat.map_streaming_content.return_value = []
+        runtime.chat.close_message.return_value = []
+
+        async def run_stream():
+            result = None
+            async for event in runtime.stream(
+                input={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "contentParts": [
+                                {"data": {"inline": "Tell me about Tokyo"}}
+                            ],
+                        }
+                    ]
+                }
+            ):
+                if isinstance(event, UiPathRuntimeResult):
+                    result = event
+            return result
+
+        result = asyncio.run(run_stream())
+
+        assert result is not None
+        assert result.status == UiPathRuntimeStatus.SUCCESSFUL
+        assert isinstance(result.output, dict)
+        assert result.output["city"] == "Tokyo"
+        assert result.output["country"] == "Japan"
+        assert result.output["famous_for"] == ["sushi", "technology", "cherry blossoms"]
+        assert "messages" not in result.output
+
+    def test_execute_returns_structured_output_dict(self):
+        """Sequential workflow execute() also returns structured dict."""
+        mock_openai = AsyncMock()
+
+        call_idx = 0
+        texts = [
+            "Tokyo is an amazing city!",
+            "Good draft, add more details.",
+            CITY_INFO_JSON,
+        ]
+
+        def mock_create(*args, **kwargs):
+            nonlocal call_idx
+            text = texts[call_idx]
+            call_idx += 1
+            return make_mock_response(text)
+
+        mock_openai.chat.completions.create.side_effect = mock_create
+
+        agent = self._make_sequential_agent(mock_openai)
+
+        runtime = UiPathAgentFrameworkRuntime(agent=agent, entrypoint="agent")
+        runtime.chat = MagicMock()
+        runtime.chat.map_messages_to_input.return_value = "Tell me about Tokyo"
+
+        result = asyncio.run(
+            runtime.execute(
+                input={
+                    "messages": [
+                        {
+                            "role": "user",
+                            "contentParts": [
+                                {"data": {"inline": "Tell me about Tokyo"}}
+                            ],
+                        }
+                    ]
+                }
+            )
+        )
+
         assert result.status == UiPathRuntimeStatus.SUCCESSFUL
         assert isinstance(result.output, dict)
         assert result.output["city"] == "Tokyo"

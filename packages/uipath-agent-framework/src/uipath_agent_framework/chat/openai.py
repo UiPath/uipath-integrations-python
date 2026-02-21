@@ -67,7 +67,7 @@ class UiPathOpenAIChatClient(OpenAIChatClient):
 
         from uipath_agent_framework.chat import UiPathOpenAIChatClient
 
-        client = UiPathOpenAIChatClient(model="gpt-4o-mini")
+        client = UiPathOpenAIChatClient(model="gpt-4.1-mini-2025-04-14")
         agent = client.as_agent(
             name="assistant",
             instructions="You are a helpful assistant.",
@@ -75,7 +75,7 @@ class UiPathOpenAIChatClient(OpenAIChatClient):
         )
     """
 
-    def __init__(self, model: str = "gpt-4o-mini", **kwargs: Any):
+    def __init__(self, model: str = "gpt-4.1-mini-2025-04-14", **kwargs: Any):
         uipath_url, token = get_uipath_config()
         gateway_url = build_gateway_url("openai", model, uipath_url)
 

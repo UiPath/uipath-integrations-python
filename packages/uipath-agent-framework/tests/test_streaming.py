@@ -640,6 +640,7 @@ class TestCheckpointPropagation:
         agent = WorkflowAgent(workflow=workflow, name="chat_wf")
 
         mock_checkpoint_storage = MagicMock()
+        mock_checkpoint_storage.get_latest = AsyncMock(return_value=None)
         captured_kwargs: list[dict[str, Any]] = []
 
         def mock_run(**kwargs):
@@ -679,6 +680,7 @@ class TestCheckpointPropagation:
         agent = WorkflowAgent(workflow=workflow, name="exec_wf")
 
         mock_checkpoint_storage = MagicMock()
+        mock_checkpoint_storage.get_latest = AsyncMock(return_value=None)
         captured_kwargs: list[dict[str, Any]] = []
 
         async def mock_run(**kwargs):

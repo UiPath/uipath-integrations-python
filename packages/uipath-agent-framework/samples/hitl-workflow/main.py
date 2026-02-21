@@ -54,7 +54,7 @@ def issue_refund(order_id: str, amount: float, reason: str) -> str:
     return f"Refund of ${amount:.2f} issued for order {order_id}: {reason}"
 
 
-client = UiPathOpenAIChatClient(model="gpt-5-mini-2025-08-07")
+client = UiPathOpenAIChatClient()
 
 triage = client.as_agent(
     name="triage",

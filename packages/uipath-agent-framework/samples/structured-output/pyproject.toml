@@ -1,0 +1,20 @@
+[project]
+name = "structured-output"
+version = "0.0.1"
+description = "Structured output: agent returns data in a well-defined Pydantic schema"
+authors = [{ name = "John Doe" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "uipath",
+    "uipath-agent-framework",
+    "agent-framework-core>=1.0.0rc1",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]
+
+[tool.uv]
+prerelease = "allow"

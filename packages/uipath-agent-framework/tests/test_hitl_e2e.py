@@ -15,6 +15,7 @@ Covers:
 """
 
 import asyncio
+import json
 import os
 import tempfile
 from typing import Any
@@ -33,6 +34,7 @@ from uipath.platform.resume_triggers import UiPathResumeTriggerHandler
 from uipath.runtime import UiPathResumableRuntime
 from uipath.runtime.chat.runtime import UiPathChatRuntime
 from uipath.runtime.events import UiPathRuntimeEvent
+from uipath.runtime.events.state import UiPathRuntimeStateEvent, UiPathRuntimeStatePhase
 from uipath.runtime.result import UiPathRuntimeResult, UiPathRuntimeStatus
 from uipath.runtime.resumable.trigger import (
     UiPathResumeTrigger,
@@ -569,6 +571,327 @@ class TestHitlToolApprovalE2E:
 
             # Final result should be successful
             assert result.status == UiPathRuntimeStatus.SUCCESSFUL
+        finally:
+            await storage.dispose()
+            os.unlink(tmp_path)
+
+    async def test_multi_turn_after_hitl_resume(self):
+        """Second fresh turn after HITL resume should not fail with stale session.
+
+        Reproduces the bug where the session saved after HITL resume was stale
+        (missing tool results), causing OpenAI to reject the next turn with:
+        "An assistant message with 'tool_calls' must be followed by tool messages"
+
+        Flow:
+          Turn 1: triage -> billing -> transfer_funds (HITL approve) -> complete
+          Turn 2: triage -> text response -> complete (must not fail)
+        """
+        call_count: dict[str, int] = {}
+
+        async def mock_create(**kwargs: Any):
+            messages = kwargs.get("messages", [])
+            is_stream = kwargs.get("stream", False)
+            system_msg = extract_system_text(messages)
+
+            if "billing" in system_msg.lower():
+                count = call_count.get("billing", 0)
+                call_count["billing"] = count + 1
+                if count == 0:
+                    return make_tool_call_response(
+                        "transfer_funds",
+                        arguments='{"from_account": "A", "to_account": "B", "amount": 100.0}',
+                        stream=is_stream,
+                    )
+                else:
+                    return make_mock_response("Transfer complete.", stream=is_stream)
+            elif "triage" in system_msg.lower():
+                count = call_count.get("triage", 0)
+                call_count["triage"] = count + 1
+                if count == 0:
+                    # Turn 1: route to billing
+                    return make_tool_call_response(
+                        "handoff_to_billing_agent", stream=is_stream
+                    )
+                else:
+                    # Turn 2: respond directly (no tool call)
+                    return make_mock_response(
+                        "How else can I help?", stream=is_stream
+                    )
+            else:
+                return make_mock_response("OK", stream=is_stream)
+
+        mock_openai = AsyncMock()
+        mock_openai.chat.completions.create = mock_create
+
+        agent = _build_hitl_agents(mock_openai)
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db")
+        os.close(tmp_fd)
+        try:
+            chat_runtime, chat_bridge, storage = await _create_hitl_runtime_stack(
+                agent, "test-hitl-multi-turn", tmp_path, auto_approve=True
+            )
+
+            # Turn 1: HITL approval flow
+            result1 = await chat_runtime.execute({"messages": []})
+            assert result1.status == UiPathRuntimeStatus.SUCCESSFUL, (
+                f"Turn 1 failed: {result1.status}"
+            )
+
+            # Verify session was saved with complete history (including tool results).
+            # The bug was that only the HITL-suspension session was persisted
+            # (missing tool results), causing the next turn to fail.
+            session_data = await storage.get_value(
+                "test-hitl-multi-turn", "session", "data"
+            )
+            assert session_data is not None, "Session was not saved after HITL resume"
+
+            session_state = session_data.get("state", {})
+            # Find all messages in any provider key
+            all_messages = []
+            for provider_key, provider_data in session_state.items():
+                if not isinstance(provider_data, dict):
+                    continue
+                msgs = provider_data.get("messages", [])
+                if not isinstance(msgs, list):
+                    continue
+                all_messages = msgs
+                break
+
+            assert len(all_messages) > 0, (
+                f"No messages found in session state. "
+                f"State keys: {list(session_state.keys())}. "
+                f"Full state: {json.dumps(session_data, indent=2, default=str)[:3000]}"
+            )
+
+            # Verify: every assistant message with a function_call must
+            # eventually be followed by a tool message with function_result
+            # for the same call_id. This is the exact invariant that OpenAI
+            # enforces and that breaks with stale sessions.
+            def get_function_call_ids(msg_data: dict) -> list[str]:
+                """Get call_ids of function_call contents in a message."""
+                ids = []
+                for c in msg_data.get("contents", []):
+                    if isinstance(c, dict) and c.get("type") == "function_call":
+                        cid = c.get("call_id")
+                        if cid:
+                            ids.append(cid)
+                return ids
+
+            def get_function_result_ids(msg_data: dict) -> list[str]:
+                """Get call_ids of function_result contents in a message."""
+                ids = []
+                for c in msg_data.get("contents", []):
+                    if isinstance(c, dict) and c.get("type") == "function_result":
+                        cid = c.get("call_id")
+                        if cid:
+                            ids.append(cid)
+                return ids
+
+            pending_call_ids: set[str] = set()
+            for i, msg in enumerate(all_messages):
+                if not isinstance(msg, dict):
+                    continue
+                pending_call_ids.update(get_function_call_ids(msg))
+                for rid in get_function_result_ids(msg):
+                    pending_call_ids.discard(rid)
+
+            assert len(pending_call_ids) == 0, (
+                f"Session has orphaned function_calls (no function_result): "
+                f"{pending_call_ids}. This will cause OpenAI to reject the next "
+                f"turn. Messages:\n"
+                + json.dumps(all_messages, indent=2, default=str)[:5000]
+            )
+
+            # Turn 2: fresh turn after HITL — must not fail with stale session
+            chat_bridge.interrupts.clear()
+            result2 = await chat_runtime.execute({"messages": []})
+            assert result2.status == UiPathRuntimeStatus.SUCCESSFUL, (
+                f"Turn 2 failed: {result2.status}"
+            )
+        finally:
+            await storage.dispose()
+            os.unlink(tmp_path)
+
+    async def test_multi_turn_after_hitl_resume_streaming(self):
+        """Streaming: second fresh turn after HITL resume should not fail.
+
+        Same as test_multi_turn_after_hitl_resume but using the streaming path.
+        """
+        call_count: dict[str, int] = {}
+
+        async def mock_create(**kwargs: Any):
+            messages = kwargs.get("messages", [])
+            is_stream = kwargs.get("stream", False)
+            system_msg = extract_system_text(messages)
+
+            if "billing" in system_msg.lower():
+                count = call_count.get("billing", 0)
+                call_count["billing"] = count + 1
+                if count == 0:
+                    return make_tool_call_response(
+                        "transfer_funds",
+                        arguments='{"from_account": "X", "to_account": "Y", "amount": 200.0}',
+                        stream=is_stream,
+                    )
+                else:
+                    return make_mock_response("Transfer done.", stream=is_stream)
+            elif "triage" in system_msg.lower():
+                count = call_count.get("triage", 0)
+                call_count["triage"] = count + 1
+                if count == 0:
+                    return make_tool_call_response(
+                        "handoff_to_billing_agent", stream=is_stream
+                    )
+                else:
+                    return make_mock_response(
+                        "Anything else?", stream=is_stream
+                    )
+            else:
+                return make_mock_response("OK", stream=is_stream)
+
+        mock_openai = AsyncMock()
+        mock_openai.chat.completions.create = mock_create
+
+        agent = _build_hitl_agents(mock_openai)
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db")
+        os.close(tmp_fd)
+        try:
+            chat_runtime, chat_bridge, storage = await _create_hitl_runtime_stack(
+                agent, "test-hitl-stream-multi", tmp_path, auto_approve=True
+            )
+
+            # Turn 1: streaming HITL flow
+            events1: list[UiPathRuntimeEvent] = []
+            async for event in chat_runtime.stream({"messages": []}):
+                events1.append(event)
+            results1 = [e for e in events1 if isinstance(e, UiPathRuntimeResult)]
+            assert len(results1) >= 1
+            assert results1[-1].status == UiPathRuntimeStatus.SUCCESSFUL, (
+                f"Turn 1 failed: {results1[-1].status}"
+            )
+
+            # Turn 2: fresh streaming turn after HITL
+            chat_bridge.interrupts.clear()
+            events2: list[UiPathRuntimeEvent] = []
+            async for event in chat_runtime.stream({"messages": []}):
+                events2.append(event)
+            results2 = [e for e in events2 if isinstance(e, UiPathRuntimeResult)]
+            assert len(results2) >= 1
+            assert results2[-1].status == UiPathRuntimeStatus.SUCCESSFUL, (
+                f"Turn 2 failed: {results2[-1].status}"
+            )
+        finally:
+            await storage.dispose()
+            os.unlink(tmp_path)
+
+    async def test_tool_node_completed_after_hitl_resume(self):
+        """Tool node should emit both STARTED and COMPLETED state events across HITL.
+
+        Reproduces the bug where billing_agent_tools emitted STARTED (before HITL
+        suspension) but never COMPLETED (after HITL resume), because the framework
+        doesn't surface function_result in output/executor_completed events for
+        handoff workflows. The fix synthesizes COMPLETED at the start of resume.
+
+        Expected event sequence:
+          customer_support STARTED
+          triage STARTED
+          triage COMPLETED
+          billing_agent STARTED
+          billing_agent_tools STARTED    <-- before HITL suspension
+          [HITL interrupt + resume]
+          billing_agent_tools COMPLETED  <-- synthesized on resume
+          billing_agent STARTED          <-- resume executor
+          billing_agent COMPLETED
+          customer_support COMPLETED
+        """
+        call_count: dict[str, int] = {}
+
+        async def mock_create(**kwargs: Any):
+            messages = kwargs.get("messages", [])
+            is_stream = kwargs.get("stream", False)
+            system_msg = extract_system_text(messages)
+
+            if "billing" in system_msg.lower():
+                count = call_count.get("billing", 0)
+                call_count["billing"] = count + 1
+                if count == 0:
+                    return make_tool_call_response(
+                        "transfer_funds",
+                        arguments='{"from_account": "A", "to_account": "B", "amount": 100.0}',
+                        stream=is_stream,
+                    )
+                else:
+                    return make_mock_response("Transfer complete.", stream=is_stream)
+            elif "triage" in system_msg.lower():
+                return make_tool_call_response(
+                    "handoff_to_billing_agent", stream=is_stream
+                )
+            else:
+                return make_mock_response("OK", stream=is_stream)
+
+        mock_openai = AsyncMock()
+        mock_openai.chat.completions.create = mock_create
+
+        agent = _build_hitl_agents(mock_openai)
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db")
+        os.close(tmp_fd)
+        try:
+            chat_runtime, chat_bridge, storage = await _create_hitl_runtime_stack(
+                agent, "test-hitl-tool-events", tmp_path, auto_approve=True
+            )
+
+            # Collect all events from streaming
+            events: list[UiPathRuntimeEvent] = []
+            async for event in chat_runtime.stream({"messages": []}):
+                events.append(event)
+
+            # Extract state events for analysis
+            state_events = [
+                e for e in events if isinstance(e, UiPathRuntimeStateEvent)
+            ]
+
+            # Build a summary: node_name -> list of phases
+            node_phases: dict[str, list[str]] = {}
+            for se in state_events:
+                if se.node_name:
+                    node_phases.setdefault(se.node_name, []).append(se.phase.value)
+
+            # billing_agent_tools MUST have both STARTED and COMPLETED
+            tools_node = "billing_agent_tools"
+            assert tools_node in node_phases, (
+                f"{tools_node} not found in state events. "
+                f"Nodes seen: {list(node_phases.keys())}"
+            )
+            tools_phases = node_phases[tools_node]
+            assert UiPathRuntimeStatePhase.STARTED.value in tools_phases, (
+                f"{tools_node} missing STARTED. Phases: {tools_phases}"
+            )
+            assert UiPathRuntimeStatePhase.COMPLETED.value in tools_phases, (
+                f"{tools_node} missing COMPLETED after HITL resume. "
+                f"Phases: {tools_phases}. "
+                f"All state events: "
+                + ", ".join(
+                    f"{e.node_name}:{e.phase.value}"
+                    for e in state_events
+                    if e.node_name
+                )
+            )
+
+            # Verify COMPLETED comes after STARTED
+            started_idx = tools_phases.index(UiPathRuntimeStatePhase.STARTED.value)
+            completed_idx = tools_phases.index(UiPathRuntimeStatePhase.COMPLETED.value)
+            assert completed_idx > started_idx, (
+                f"{tools_node} COMPLETED ({completed_idx}) should come after "
+                f"STARTED ({started_idx})"
+            )
+
+            # Final result should be successful
+            results = [e for e in events if isinstance(e, UiPathRuntimeResult)]
+            assert len(results) >= 1
+            assert results[-1].status == UiPathRuntimeStatus.SUCCESSFUL
         finally:
             await storage.dispose()
             os.unlink(tmp_path)

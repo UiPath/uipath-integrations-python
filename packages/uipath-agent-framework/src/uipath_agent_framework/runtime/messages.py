@@ -184,12 +184,20 @@ class AgentFrameworkChatMessagesMapper:
 
     def close_message(self) -> list[UiPathConversationMessageEvent]:
         """Close the current message if open. Safety net for end of stream."""
+        events: list[UiPathConversationMessageEvent] = []
+        # Emit ToolCallEnd for any tool calls that were started but never
+        # completed (e.g. HITL suspension interrupted before function_result).
+        if self._pending_tool_calls:
+            for tool_call_id, message_id in self._pending_tool_calls.items():
+                events.append(
+                    self._make_tool_call_end_event(message_id, tool_call_id, {})
+                )
+            self._pending_tool_calls.clear()
         if self._message_started and self._current_message_id:
-            events = [self._make_message_end_event(self._current_message_id)]
+            events.append(self._make_message_end_event(self._current_message_id))
             self._message_started = False
             self._current_message_id = None
-            return events
-        return []
+        return events
 
     @staticmethod
     def _extract_text_from_content(content: Content) -> str:

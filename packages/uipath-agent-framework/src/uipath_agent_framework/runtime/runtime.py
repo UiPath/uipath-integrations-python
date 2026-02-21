@@ -1,10 +1,14 @@
 """Runtime class for executing Agent Framework agents within the UiPath framework."""
 
 import json
+import logging
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
+logger = logging.getLogger(__name__)
+
 from agent_framework import (
+    Agent,
     AgentExecutor,
     AgentExecutorResponse,
     AgentResponse,
@@ -913,19 +917,68 @@ class UiPathAgentFrameworkRuntime:
         if not outputs:
             return ""
 
-        texts: list[str] = []
+        # Check for AgentResponse.value (non-streaming path).
         for data in outputs:
-            text = self._extract_text_from_data(data)
-            if text:
-                texts.append(text)
+            response = self._get_agent_response(data)
+            if response is not None and response.value is not None:
+                value = response.value
+                if isinstance(value, BaseModel):
+                    return value.model_dump()
+                if isinstance(value, dict):
+                    return value
 
-        if texts:
-            return "\n\n".join(texts)
+        # Concatenate text from all outputs without separator —
+        # streaming tokens are individual chunks, not separate paragraphs.
+        combined = "".join(self._extract_text_from_data(data) for data in outputs)
+
+        if combined:
+            # Try parsing as structured output via response_format.
+            parsed = self._try_parse_structured_output(combined)
+            if parsed is not None:
+                return parsed
+            return combined
 
         try:
             return json.loads(serialize_json(outputs[-1]))
         except Exception:
             return str(outputs[-1])
+
+    @staticmethod
+    def _get_agent_response(data: Any) -> AgentResponse | None:
+        """Unwrap an AgentResponse from workflow output data."""
+        if isinstance(data, AgentExecutorResponse):
+            return data.agent_response
+        if isinstance(data, AgentResponse):
+            return data
+        return None
+
+    def _try_parse_structured_output(self, text: str) -> dict[str, Any] | None:
+        """Try to parse concatenated text using the output executor's response_format."""
+        response_format = self._get_output_response_format()
+        if response_format is None:
+            return None
+        try:
+            parsed = response_format.model_validate_json(text)
+            return parsed.model_dump()
+        except Exception:
+            return None
+
+    def _get_output_response_format(self) -> type[BaseModel] | None:
+        """Get the response_format from the workflow's output executors."""
+        try:
+            output_executors = self.agent.workflow.get_output_executors()
+        except Exception:
+            return None
+        for executor in output_executors:
+            if not isinstance(executor, AgentExecutor):
+                continue
+            inner_agent = executor._agent
+            if not isinstance(inner_agent, Agent):
+                continue
+            response_format = inner_agent.default_options.get("response_format")
+            if response_format is not None and isinstance(response_format, type) and issubclass(response_format, BaseModel):
+                return response_format
+        return None
 
     @staticmethod
     def _extract_text_from_data(data: Any) -> str:
@@ -961,7 +1014,7 @@ class UiPathAgentFrameworkRuntime:
                             )
                             if text:
                                 parts.append(text)
-            return "\n\n".join(parts)
+            return "".join(parts)
         return ""
 
     def _prepare_input(self, input: dict[str, Any] | None) -> str:

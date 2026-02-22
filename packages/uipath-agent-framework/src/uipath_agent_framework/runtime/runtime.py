@@ -78,6 +78,13 @@ class UiPathAgentFrameworkRuntime:
         # synthetic COMPLETED events on HITL resume when the framework
         # doesn't surface function_result in output/executor_completed.
         self._pending_tool_nodes: set[str] = set()
+        # Track executors that already emitted message events so we don't
+        # duplicate when the same data appears across breakpoint resume
+        # cycles.  Persists across _stream_workflow() calls for the same
+        # reason as _pending_tool_nodes — the debug runtime's while loop
+        # calls stream() (and thus _stream_workflow()) once per breakpoint.
+        # Reset on fresh (non-resume) runs to avoid stale state.
+        self._executors_with_messages: set[str] = set()
 
     # ------------------------------------------------------------------
     # Checkpoint helpers
@@ -625,10 +632,13 @@ class UiPathAgentFrameworkRuntime:
                 output_executor_ids.add(ex.id)
         except Exception:
             pass
-        # Track executors that already emitted message events so we don't
-        # duplicate when the same data appears in both executor_completed
-        # and "output" events.
-        executors_with_messages: set[str] = set()
+        # Reset per-executor message tracking on fresh runs so stale state
+        # from a previous turn doesn't suppress new messages.  On breakpoint
+        # resume runs the set is preserved so messages emitted in an earlier
+        # cycle are not duplicated when the "output" event contains the full
+        # conversation.
+        if not is_resuming:
+            self._executors_with_messages = set()
 
         # Emit an early STARTED event for the start executor so the graph
         # visualization shows it immediately rather than after it finishes.
@@ -708,7 +718,7 @@ class UiPathAgentFrameworkRuntime:
                         if (
                             isinstance(executor, AgentExecutor)
                             and event.executor_id not in output_executor_ids
-                            and event.executor_id not in executors_with_messages
+                            and event.executor_id not in self._executors_with_messages
                         ):
                             completed_msg_events = self._extract_workflow_messages(
                                 self._filter_completed_data(event.data)
@@ -720,7 +730,7 @@ class UiPathAgentFrameworkRuntime:
                                     yield UiPathRuntimeMessageEvent(payload=close_evt)
                                 for msg_event in completed_msg_events:
                                     yield UiPathRuntimeMessageEvent(payload=msg_event)
-                                executors_with_messages.add(event.executor_id)
+                                self._executors_with_messages.add(event.executor_id)
 
                     yield UiPathRuntimeStateEvent(
                         payload=self._serialize_event_data(
@@ -749,7 +759,7 @@ class UiPathAgentFrameworkRuntime:
                     # When intermediate agents already emitted message
                     # events via executor_completed, skip the final
                     # orchestration output to avoid duplicating text.
-                    if not executors_with_messages:
+                    if not self._executors_with_messages:
                         for msg_event in self._extract_workflow_messages(
                             event.data, assistant_only=True
                         ):

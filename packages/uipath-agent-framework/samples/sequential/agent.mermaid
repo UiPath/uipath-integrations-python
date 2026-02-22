@@ -1,0 +1,14 @@
+flowchart TB
+  __start__(__start__)
+  __end__(__end__)
+  input-conversation(input-conversation)
+  writer(writer)
+  reviewer(reviewer)
+  editor(editor)
+  end(end)
+  __start__ --> |input|input-conversation
+  input-conversation --> writer
+  writer --> reviewer
+  reviewer --> editor
+  editor --> end
+  end --> |output|__end__

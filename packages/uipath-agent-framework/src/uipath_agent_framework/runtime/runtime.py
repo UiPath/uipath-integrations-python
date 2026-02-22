@@ -1,10 +1,12 @@
 """Runtime class for executing Agent Framework agents within the UiPath framework."""
 
 import json
+import logging
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 from agent_framework import (
+    Agent,
     AgentExecutor,
     AgentExecutorResponse,
     AgentResponse,
@@ -44,6 +46,8 @@ from .errors import UiPathAgentFrameworkErrorCode, UiPathAgentFrameworkRuntimeEr
 from .messages import AgentFrameworkChatMessagesMapper
 from .resumable_storage import ScopedCheckpointStorage, SqliteResumableStorage
 from .schema import get_agent_graph, get_entrypoints_schema
+
+logger = logging.getLogger(__name__)
 
 
 class UiPathAgentFrameworkRuntime:
@@ -610,6 +614,22 @@ class UiPathAgentFrameworkRuntime:
         # (COMPLETED) is only in executor_completed.
         executor_tool_phases: dict[str, set[UiPathRuntimeStatePhase]] = {}
 
+        # Determine which executors are output executors so we can emit
+        # intermediate message events from non-output agent executors on
+        # completion.  This enables per-agent streaming for orchestrations
+        # like SequentialBuilder where output_executors=[end] and
+        # intermediate agent outputs are filtered from "output" events.
+        output_executor_ids: set[str] = set()
+        try:
+            for ex in workflow.get_output_executors():
+                output_executor_ids.add(ex.id)
+        except Exception:
+            pass
+        # Track executors that already emitted message events so we don't
+        # duplicate when the same data appears in both executor_completed
+        # and "output" events.
+        executors_with_messages: set[str] = set()
+
         # Emit an early STARTED event for the start executor so the graph
         # visualization shows it immediately rather than after it finishes.
         # The framework's _run_workflow_with_tracing awaits the entire start
@@ -675,6 +695,33 @@ class UiPathAgentFrameworkRuntime:
                                             tool_event.node_name
                                         )
                                 yield tool_event
+
+                        # For non-output AgentExecutor instances, extract
+                        # message events from executor_completed data.
+                        # This provides intermediate streaming for
+                        # orchestrations (e.g. sequential) where agent
+                        # output events are filtered by output_executors.
+                        # Only AgentExecutors produce meaningful chat
+                        # messages; framework-internal executors like
+                        # input-conversation would echo user input.
+                        executor = workflow.executors.get(event.executor_id)
+                        if (
+                            isinstance(executor, AgentExecutor)
+                            and event.executor_id not in output_executor_ids
+                            and event.executor_id not in executors_with_messages
+                        ):
+                            completed_msg_events = self._extract_workflow_messages(
+                                self._filter_completed_data(event.data)
+                            )
+                            if completed_msg_events:
+                                # Close prior message so each agent gets a
+                                # separate bubble in the UI.
+                                for close_evt in self.chat.close_message():
+                                    yield UiPathRuntimeMessageEvent(payload=close_evt)
+                                for msg_event in completed_msg_events:
+                                    yield UiPathRuntimeMessageEvent(payload=msg_event)
+                                executors_with_messages.add(event.executor_id)
+
                     yield UiPathRuntimeStateEvent(
                         payload=self._serialize_event_data(
                             self._filter_completed_data(event.data)
@@ -698,8 +745,15 @@ class UiPathAgentFrameworkRuntime:
                             elif tool_event.phase == UiPathRuntimeStatePhase.COMPLETED:
                                 self._pending_tool_nodes.discard(tool_event.node_name)
                         yield tool_event
-                    for msg_event in self._extract_workflow_messages(event.data):
-                        yield UiPathRuntimeMessageEvent(payload=msg_event)
+
+                    # When intermediate agents already emitted message
+                    # events via executor_completed, skip the final
+                    # orchestration output to avoid duplicating text.
+                    if not executors_with_messages:
+                        for msg_event in self._extract_workflow_messages(
+                            event.data, assistant_only=True
+                        ):
+                            yield UiPathRuntimeMessageEvent(payload=msg_event)
 
                 # Detect workflow suspension via state
                 if (
@@ -895,9 +949,31 @@ class UiPathAgentFrameworkRuntime:
                 contents.extend(UiPathAgentFrameworkRuntime._extract_contents(item))
         return contents
 
-    def _extract_workflow_messages(self, data: Any) -> list[Any]:
-        """Extract UiPath conversation message events from workflow output data."""
+    def _extract_workflow_messages(
+        self, data: Any, *, assistant_only: bool = False
+    ) -> list[Any]:
+        """Extract UiPath conversation message events from workflow output data.
+
+        Args:
+            data: Workflow output data (AgentResponse, Message, list[Message], etc.)
+            assistant_only: When True, only extract content from assistant-role
+                messages.  Used for orchestration outputs (e.g. sequential
+                workflow full-conversation lists) to avoid echoing the user's
+                input back as AI output.
+        """
         events: list[Any] = []
+
+        if assistant_only and isinstance(data, list):
+            for item in data:
+                if isinstance(item, Message) and item.role != "assistant":
+                    continue
+                for content in self._extract_contents(item):
+                    if isinstance(content, Content):
+                        if content.type == "function_approval_request":
+                            continue
+                        events.extend(self.chat.map_streaming_content(content))
+            return events
+
         for content in self._extract_contents(data):
             if isinstance(content, Content):
                 # Skip HITL approval requests — handled by the suspension mechanism
@@ -913,14 +989,26 @@ class UiPathAgentFrameworkRuntime:
         if not outputs:
             return ""
 
-        texts: list[str] = []
+        # Check for AgentResponse.value (non-streaming path).
         for data in outputs:
-            text = self._extract_text_from_data(data)
-            if text:
-                texts.append(text)
+            response = self._get_agent_response(data)
+            if response is not None and response.value is not None:
+                value = response.value
+                if isinstance(value, BaseModel):
+                    return value.model_dump()
+                if isinstance(value, dict):
+                    return value
 
-        if texts:
-            return "\n\n".join(texts)
+        # Concatenate text from all outputs without separator —
+        # streaming tokens are individual chunks, not separate paragraphs.
+        combined = "".join(self._extract_text_from_data(data) for data in outputs)
+
+        if combined:
+            # Try parsing as structured output via response_format.
+            parsed = self._try_parse_structured_output(combined)
+            if parsed is not None:
+                return parsed
+            return combined
 
         try:
             return json.loads(serialize_json(outputs[-1]))
@@ -928,29 +1016,113 @@ class UiPathAgentFrameworkRuntime:
             return str(outputs[-1])
 
     @staticmethod
+    def _get_agent_response(data: Any) -> AgentResponse | None:
+        """Unwrap an AgentResponse from workflow output data."""
+        if isinstance(data, AgentExecutorResponse):
+            return data.agent_response
+        if isinstance(data, AgentResponse):
+            return data
+        return None
+
+    def _try_parse_structured_output(self, text: str) -> dict[str, Any] | None:
+        """Try to parse concatenated text using the output executor's response_format."""
+        response_format = self._get_output_response_format()
+        if response_format is None:
+            return None
+        try:
+            parsed = response_format.model_validate_json(text)
+            return parsed.model_dump()
+        except Exception:
+            return None
+
+    def _get_output_response_format(self) -> type[BaseModel] | None:
+        """Get the response_format from the workflow's output executors.
+
+        For orchestrations (e.g. SequentialBuilder) where output executors are
+        framework-internal adapters, falls back to scanning all workflow
+        executors and returns the response_format from the last AgentExecutor.
+        """
+        try:
+            output_executors = self.agent.workflow.get_output_executors()
+        except Exception:
+            return None
+        for executor in output_executors:
+            if not isinstance(executor, AgentExecutor):
+                continue
+            inner_agent = executor._agent
+            if not isinstance(inner_agent, Agent):
+                continue
+            response_format = inner_agent.default_options.get("response_format")
+            if (
+                response_format is not None
+                and isinstance(response_format, type)
+                and issubclass(response_format, BaseModel)
+            ):
+                return response_format
+
+        # Fallback: scan all workflow executors for the last AgentExecutor
+        # with a response_format. Needed for orchestrations like sequential
+        # where the output executor is an internal adapter (e.g. _EndWithConversation).
+        try:
+            all_executors = list(self.agent.workflow.executors.values())
+        except Exception:
+            return None
+        result: type[BaseModel] | None = None
+        for executor in all_executors:
+            if not isinstance(executor, AgentExecutor):
+                continue
+            inner_agent = executor._agent
+            if not isinstance(inner_agent, Agent):
+                continue
+            response_format = inner_agent.default_options.get("response_format")
+            if (
+                response_format is not None
+                and isinstance(response_format, type)
+                and issubclass(response_format, BaseModel)
+            ):
+                result = response_format
+        return result
+
+    @staticmethod
     def _extract_text_from_data(data: Any) -> str:
-        """Extract text from any workflow data type."""
+        """Extract text from any workflow data type.
+
+        For list[Message] data (e.g. sequential workflow full-conversation
+        output), only the last assistant message is used.  The full
+        conversation includes intermediate agent turns but the workflow
+        result should be the final agent's output, not the concatenation
+        of every participant.
+        """
         if isinstance(data, (AgentResponseUpdate, AgentResponse)):
             return data.text or ""
         if isinstance(data, Message):
+            if data.role != "assistant":
+                return ""
             return "".join(
                 c.text for c in (data.contents or []) if hasattr(c, "text") and c.text
             )
         if isinstance(data, str):
             return data
         if isinstance(data, list):
-            parts: list[str] = []
+            # Collect assistant message texts, then return only the last
+            # one.  For single-agent workflows there is typically only one
+            # assistant message so this is equivalent to the old behavior.
+            # For multi-agent conversations (sequential, group-chat) the
+            # last assistant message is the final agent's output.
+            last_text: str = ""
             for item in data:
                 if isinstance(item, Message):
+                    if item.role != "assistant":
+                        continue
                     text = "".join(
                         c.text
                         for c in (item.contents or [])
                         if hasattr(c, "text") and c.text
                     )
                     if text:
-                        parts.append(text)
+                        last_text = text
                 elif isinstance(item, str):
-                    parts.append(item)
+                    last_text = item
                 elif isinstance(item, list):
                     for inner in item:
                         if isinstance(inner, Message) and inner.role == "assistant":
@@ -960,8 +1132,8 @@ class UiPathAgentFrameworkRuntime:
                                 if hasattr(c, "text") and c.text
                             )
                             if text:
-                                parts.append(text)
-            return "\n\n".join(parts)
+                                last_text = text
+            return last_text
         return ""
 
     def _prepare_input(self, input: dict[str, Any] | None) -> str:

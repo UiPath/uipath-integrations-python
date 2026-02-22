@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from agent_framework import (
+    Agent,
     AgentExecutor,
     BaseAgent,
     Edge,
@@ -12,6 +13,7 @@ from agent_framework import (
     Workflow,
     WorkflowAgent,
 )
+from pydantic import BaseModel
 from uipath.runtime.schema import (
     UiPathRuntimeEdge,
     UiPathRuntimeGraph,
@@ -25,11 +27,79 @@ def get_entrypoints_schema(agent: BaseAgent) -> dict[str, Any]:
     Agent Framework agents are conversational — they always take messages
     as input and return conversation messages as output. Uses the standard
     UiPath conversation message format (matching Google ADK pattern).
+
+    If the workflow's output executor has a response_format (Pydantic model),
+    the output schema reflects that structured type instead of default messages.
     """
+    output_schema = _extract_output_schema(agent) or _default_messages_schema()
     return {
         "input": _default_messages_schema(),
-        "output": _default_messages_schema(),
+        "output": output_schema,
     }
+
+
+def _extract_output_schema(agent: BaseAgent) -> dict[str, Any] | None:
+    """Extract structured output schema from a WorkflowAgent's output executors.
+
+    Checks if the output executor's inner agent has a response_format set to a
+    Pydantic BaseModel. If so, returns its JSON schema as the output schema.
+
+    For orchestrations (e.g. SequentialBuilder) where output executors are
+    framework-internal adapters, falls back to scanning all workflow executors
+    and returns the schema from the last AgentExecutor with a response_format.
+    """
+    if not isinstance(agent, WorkflowAgent):
+        return None
+
+    try:
+        output_executors = agent.workflow.get_output_executors()
+    except Exception:
+        return None
+
+    for executor in output_executors:
+        if not isinstance(executor, AgentExecutor):
+            continue
+        inner_agent = executor._agent
+        if not isinstance(inner_agent, Agent):
+            continue
+        response_format = inner_agent.default_options.get("response_format")
+        if response_format is None:
+            continue
+        try:
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
+                return response_format.model_json_schema()
+        except Exception:
+            continue
+
+    # Fallback: scan all workflow executors for the last AgentExecutor
+    # with a response_format. Needed for orchestrations like sequential
+    # where the output executor is an internal adapter.
+    try:
+        all_executors = list(agent.workflow.executors.values())
+    except Exception:
+        return None
+
+    result: dict[str, Any] | None = None
+    for executor in all_executors:
+        if not isinstance(executor, AgentExecutor):
+            continue
+        inner_agent = executor._agent
+        if not isinstance(inner_agent, Agent):
+            continue
+        response_format = inner_agent.default_options.get("response_format")
+        if response_format is None:
+            continue
+        try:
+            if isinstance(response_format, type) and issubclass(
+                response_format, BaseModel
+            ):
+                result = response_format.model_json_schema()
+        except Exception:
+            continue
+
+    return result
 
 
 def _conversation_message_item_schema() -> dict[str, Any]:
@@ -152,12 +222,12 @@ def _build_workflow_graph(workflow: Workflow) -> UiPathRuntimeGraph:
         )
 
         # AgentExecutors wrap a BaseAgent that may have tools
-        if isinstance(executor, AgentExecutor):
-            inner_agent: BaseAgent | None = getattr(executor, "_agent", None)
-            if inner_agent is not None:
-                _add_executor_tool_nodes(
-                    exec_id, inner_agent, nodes, edges, executor_ids
-                )
+        if isinstance(executor, AgentExecutor) and isinstance(
+            executor._agent, BaseAgent
+        ):
+            _add_executor_tool_nodes(
+                exec_id, executor._agent, nodes, edges, executor_ids
+            )
 
     # Connect __start__ → start executor
     edges.append(UiPathRuntimeEdge(source="__start__", target=start_id, label="input"))

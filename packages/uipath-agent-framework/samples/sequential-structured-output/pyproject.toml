@@ -1,0 +1,25 @@
+[project]
+name = "sequential-structured-output"
+version = "0.0.1"
+description = "Sequential + structured output: agents process a task in a pipeline, the last agent returns data in a well-defined Pydantic schema"
+authors = [{ name = "John Doe" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "uipath",
+    "uipath-agent-framework",
+    "agent-framework-core>=1.0.0rc1",
+    "agent-framework-orchestrations>=1.0.0b260219",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+uipath-dev = { path = "../../../../../uipath-dev-python", editable = true }
+uipath-agent-framework = { path = "../../", editable = true }

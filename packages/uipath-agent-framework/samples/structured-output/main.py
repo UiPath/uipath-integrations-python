@@ -22,7 +22,7 @@ city_agent = client.as_agent(
         "Given a city name, provide the city name, country, a brief description, "
         "an estimated population, and a list of things the city is famous for."
     ),
-    response_format=CityInfo,
+    default_options={"response_format": CityInfo},
 )
 
 workflow = WorkflowBuilder(start_executor=city_agent).build()

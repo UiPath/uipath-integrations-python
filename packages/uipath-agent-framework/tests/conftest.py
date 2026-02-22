@@ -94,6 +94,42 @@ async def make_streaming_response(text: str):
     )
 
 
+async def make_chunked_streaming_response(text: str, chunk_size: int = 4):
+    """Create streaming chunks that simulate token-by-token LLM output."""
+    for i in range(0, len(text), chunk_size):
+        token = text[i : i + chunk_size]
+        yield ChatCompletionChunk(
+            id="test-chunk",
+            choices=[
+                ChunkChoice(
+                    index=0,
+                    delta=ChoiceDelta(
+                        role="assistant" if i == 0 else None,
+                        content=token,
+                    ),
+                    finish_reason=None,
+                )
+            ],
+            created=0,
+            model="mock-model",
+            object="chat.completion.chunk",
+        )
+    yield ChatCompletionChunk(
+        id="test-chunk",
+        choices=[
+            ChunkChoice(
+                index=0,
+                delta=ChoiceDelta(),
+                finish_reason="stop",
+            )
+        ],
+        created=0,
+        model="mock-model",
+        object="chat.completion.chunk",
+        usage=CompletionUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
+    )
+
+
 def make_mock_response(text: str, stream: bool = False):
     """Return either a ChatCompletion or a streaming async iterable."""
     if stream:

@@ -211,13 +211,23 @@ def _build_workflow_graph(workflow: Workflow) -> UiPathRuntimeGraph:
 
     # Add a node for each executor
     for exec_id, executor in executors.items():
+        node_type = "node"
+        metadata: dict[str, Any] | None = None
+
+        # AgentExecutors that wrap an agent with a chat client are model nodes
+        if isinstance(executor, AgentExecutor):
+            model_name = _get_model_name(executor._agent)
+            if model_name is not None:
+                node_type = "model"
+                metadata = {"model_name": model_name}
+
         nodes.append(
             UiPathRuntimeNode(
                 id=exec_id,
                 name=exec_id,
-                type="node",
+                type=node_type,
                 subgraph=None,
-                metadata=None,
+                metadata=metadata,
             )
         )
 
@@ -318,6 +328,21 @@ def _add_executor_tool_nodes(
         edges.append(
             UiPathRuntimeEdge(source=tools_node_id, target=executor_id, label=None)
         )
+
+
+def _get_model_name(agent: Any) -> str | None:
+    """Extract the model name from an agent's chat client.
+
+    Chat clients (OpenAIChatClient, AnthropicClient) store the model
+    identifier as ``model_id`` on the client instance.
+    """
+    try:
+        model_id = agent.client.model_id
+        if isinstance(model_id, str):
+            return model_id
+    except AttributeError:
+        pass
+    return None
 
 
 def get_agent_tools(agent: BaseAgent) -> list[Any]:

@@ -15,11 +15,15 @@ from agent_framework import (
 from uipath_agent_framework.runtime.schema import get_agent_graph
 
 
-def _make_agent(name="test_agent", tools=None) -> BaseAgent:
+def _make_agent(name="test_agent", tools=None, model_id=None) -> BaseAgent:
     """Create a mock BaseAgent for testing."""
     agent = MagicMock(spec=BaseAgent)
     agent.name = name
     agent.default_options = {"tools": tools or []}
+    if model_id is not None:
+        client = MagicMock()
+        client.model_id = model_id
+        agent.client = client
     return agent
 
 
@@ -477,3 +481,84 @@ class TestWorkflowGraph:
         assert ("topics", "merge") in edge_pairs
         assert ("summary", "merge") in edge_pairs
         assert ("merge", "__end__") in edge_pairs
+
+    def test_agent_executor_with_model_is_model_node(self):
+        """AgentExecutor with a chat client becomes a model node."""
+        inner_agent = _make_agent(name="assistant", model_id="gpt-4.1-mini-2025-04-14")
+        executors = {
+            "assistant": _make_executor("assistant", agent=inner_agent),
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="assistant",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        node = next(n for n in graph.nodes if n.id == "assistant")
+        assert node.type == "model"
+        assert node.metadata == {"model_name": "gpt-4.1-mini-2025-04-14"}
+
+    def test_agent_executor_without_model_is_regular_node(self):
+        """AgentExecutor without a chat client stays as a regular node."""
+        inner_agent = _make_agent(name="assistant")
+        executors = {
+            "assistant": _make_executor("assistant", agent=inner_agent),
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="assistant",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        node = next(n for n in graph.nodes if n.id == "assistant")
+        assert node.type == "node"
+        assert node.metadata is None
+
+    def test_plain_executor_is_regular_node(self):
+        """Non-AgentExecutor stays as a regular node."""
+        executors = {
+            "step": _make_executor("step"),  # no agent
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="step",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        node = next(n for n in graph.nodes if n.id == "step")
+        assert node.type == "node"
+        assert node.metadata is None
+
+    def test_multi_agent_workflow_with_different_models(self):
+        """Multiple agents with different models each get their model name."""
+        triage_agent = _make_agent(name="triage", model_id="gpt-4.1-2025-04-14")
+        billing_agent = _make_agent(
+            name="billing", model_id="anthropic.claude-haiku-4-5-20251001-v1:0"
+        )
+        executors = {
+            "triage": _make_executor("triage", agent=triage_agent),
+            "billing": _make_executor("billing", agent=billing_agent),
+        }
+        workflow = _make_workflow(
+            executors=executors,
+            edge_groups=[],
+            start_executor_id="triage",
+        )
+        agent = _make_workflow_agent(workflow)
+        graph = get_agent_graph(agent)
+
+        triage_node = next(n for n in graph.nodes if n.id == "triage")
+        assert triage_node.type == "model"
+        assert triage_node.metadata == {"model_name": "gpt-4.1-2025-04-14"}
+
+        billing_node = next(n for n in graph.nodes if n.id == "billing")
+        assert billing_node.type == "model"
+        assert billing_node.metadata == {
+            "model_name": "anthropic.claude-haiku-4-5-20251001-v1:0"
+        }

@@ -629,16 +629,14 @@ class TestErrorHandling:
     async def test_context_with_non_picklable_object(self, tmp_path: Path):
         """Test handling of non-picklable objects in context."""
         db_path = tmp_path / "test.db"
-        storage = SqliteResumableStorage(str(db_path))
-        await storage.setup()
+        async with SqliteResumableStorage(str(db_path)) as storage:
+            # Lambda functions are not picklable
+            context = {"func": lambda x: x + 1}
 
-        # Lambda functions are not picklable
-        context = {"func": lambda x: x + 1}
-
-        with pytest.raises(
-            (AttributeError, TypeError)
-        ):  # pickle.PicklingError or similar
-            await storage.save_context("runtime-1", context)
+            with pytest.raises(
+                (AttributeError, TypeError)
+            ):  # pickle.PicklingError or similar
+                await storage.save_context("runtime-1", context)
 
     @pytest.mark.asyncio
     async def test_multiple_concurrent_operations(self, tmp_path: Path):
@@ -646,39 +644,38 @@ class TestErrorHandling:
         import asyncio
 
         db_path = tmp_path / "test.db"
-        storage = SqliteResumableStorage(str(db_path))
-        await storage.setup()
+        async with SqliteResumableStorage(str(db_path)) as storage:
 
-        async def save_trigger(runtime_id: str, key: str):
-            trigger = UiPathResumeTrigger(
-                interrupt_id="interrupt-1",
-                trigger_type=UiPathResumeTriggerType.QUEUE_ITEM,
-                trigger_name=UiPathResumeTriggerName.QUEUE_ITEM.value,
-                item_key=key,
+            async def save_trigger(runtime_id: str, key: str):
+                trigger = UiPathResumeTrigger(
+                    interrupt_id="interrupt-1",
+                    trigger_type=UiPathResumeTriggerType.QUEUE_ITEM,
+                    trigger_name=UiPathResumeTriggerName.QUEUE_ITEM.value,
+                    item_key=key,
+                )
+                await storage.save_triggers(runtime_id, [trigger])
+
+            # Run multiple saves concurrently
+            await asyncio.gather(
+                save_trigger("runtime-1", "key-1"),
+                save_trigger("runtime-2", "key-2"),
+                save_trigger("runtime-3", "key-3"),
             )
-            await storage.save_triggers(runtime_id, [trigger])
 
-        # Run multiple saves concurrently
-        await asyncio.gather(
-            save_trigger("runtime-1", "key-1"),
-            save_trigger("runtime-2", "key-2"),
-            save_trigger("runtime-3", "key-3"),
-        )
+            # Verify all were saved
+            trigger1 = await storage.get_triggers("runtime-1")
+            trigger2 = await storage.get_triggers("runtime-2")
+            trigger3 = await storage.get_triggers("runtime-3")
 
-        # Verify all were saved
-        trigger1 = await storage.get_triggers("runtime-1")
-        trigger2 = await storage.get_triggers("runtime-2")
-        trigger3 = await storage.get_triggers("runtime-3")
-
-        assert trigger1 is not None
-        assert trigger2 is not None
-        assert trigger3 is not None
-        assert trigger1[0] is not None
-        assert trigger2[0] is not None
-        assert trigger3[0] is not None
-        assert trigger1[0].item_key == "key-1"
-        assert trigger2[0].item_key == "key-2"
-        assert trigger3[0].item_key == "key-3"
+            assert trigger1 is not None
+            assert trigger2 is not None
+            assert trigger3 is not None
+            assert trigger1[0] is not None
+            assert trigger2[0] is not None
+            assert trigger3[0] is not None
+            assert trigger1[0].item_key == "key-1"
+            assert trigger2[0].item_key == "key-2"
+            assert trigger3[0].item_key == "key-3"
 
 
 class TestDatabaseSchema:
@@ -688,57 +685,52 @@ class TestDatabaseSchema:
     async def test_runtime_kv_primary_key_constraint(self, tmp_path: Path):
         """Test that runtime_kv primary key constraint works."""
         db_path = tmp_path / "test.db"
-        storage = SqliteResumableStorage(str(db_path))
-        await storage.setup()
+        async with SqliteResumableStorage(str(db_path)) as storage:
+            # First insert
+            await storage.set_value("runtime-1", "ns", "key", "value1")
 
-        # First insert
-        await storage.set_value("runtime-1", "ns", "key", "value1")
+            # Second insert with same primary key should update, not fail
+            await storage.set_value("runtime-1", "ns", "key", "value2")
 
-        # Second insert with same primary key should update, not fail
-        await storage.set_value("runtime-1", "ns", "key", "value2")
-
-        value = await storage.get_value("runtime-1", "ns", "key")
-        assert value == "value2"
+            value = await storage.get_value("runtime-1", "ns", "key")
+            assert value == "value2"
 
     @pytest.mark.asyncio
     async def test_workflow_contexts_primary_key_constraint(self, tmp_path: Path):
         """Test that workflow_contexts primary key constraint works."""
         db_path = tmp_path / "test.db"
-        storage = SqliteResumableStorage(str(db_path))
-        await storage.setup()
+        async with SqliteResumableStorage(str(db_path)) as storage:
+            # First save
+            await storage.save_context("runtime-1", {"step": 1})
 
-        # First save
-        await storage.save_context("runtime-1", {"step": 1})
+            # Second save with same runtime_id should update, not fail
+            await storage.save_context("runtime-1", {"step": 2})
 
-        # Second save with same runtime_id should update, not fail
-        await storage.save_context("runtime-1", {"step": 2})
-
-        context = await storage.load_context("runtime-1")
-        assert context == {"step": 2}
+            context = await storage.load_context("runtime-1")
+            assert context == {"step": 2}
 
     @pytest.mark.asyncio
     async def test_resume_triggers_autoincrement(self, tmp_path: Path):
         """Test that resume_triggers id autoincrement works."""
         db_path = tmp_path / "test.db"
-        storage = SqliteResumableStorage(str(db_path))
-        await storage.setup()
 
-        trigger1 = UiPathResumeTrigger(
-            interrupt_id="interrupt-1",
-            trigger_type=UiPathResumeTriggerType.QUEUE_ITEM,
-            trigger_name=UiPathResumeTriggerName.QUEUE_ITEM.value,
-            item_key="key-1",
-        )
-        trigger2 = UiPathResumeTrigger(
-            interrupt_id="interrupt-2",
-            trigger_type=UiPathResumeTriggerType.QUEUE_ITEM,
-            trigger_name=UiPathResumeTriggerName.QUEUE_ITEM.value,
-            item_key="key-2",
-        )
+        async with SqliteResumableStorage(str(db_path)) as storage:
+            trigger1 = UiPathResumeTrigger(
+                interrupt_id="interrupt-1",
+                trigger_type=UiPathResumeTriggerType.QUEUE_ITEM,
+                trigger_name=UiPathResumeTriggerName.QUEUE_ITEM.value,
+                item_key="key-1",
+            )
+            trigger2 = UiPathResumeTrigger(
+                interrupt_id="interrupt-2",
+                trigger_type=UiPathResumeTriggerType.QUEUE_ITEM,
+                trigger_name=UiPathResumeTriggerName.QUEUE_ITEM.value,
+                item_key="key-2",
+            )
+            await storage.save_triggers("runtime-1", [trigger1, trigger2])
 
-        await storage.save_triggers("runtime-1", [trigger1, trigger2])
-
-        # Verify both were saved (autoincrement allowed multiple rows)
+        # Verify both were saved (autoincrement allowed multiple rows).
+        # Open a fresh connection after the storage is disposed to avoid locking.
         async with aiosqlite.connect(str(db_path)) as conn:
             cursor = await conn.execute(
                 "SELECT COUNT(*) FROM resume_triggers WHERE runtime_id = ?",

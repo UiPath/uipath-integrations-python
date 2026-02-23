@@ -1,0 +1,27 @@
+[project]
+name = "chat-agent"
+version = "0.0.1"
+description = "chat-agent"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+dependencies = [
+    "uipath-llamaindex>=0.5.7, <0.6.0",
+    "llama-index-llms-openai>=0.6.10",
+    "llama-index-tools-tavily-research>=0.4.2",
+    "llama-index-llms-openai>=0.6.18"
+]
+requires-python = ">=3.11"
+
+
+[dependency-groups]
+dev = [
+     "uipath-dev>=0.0.19",
+]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
+
+[tool.uv.sources]
+uipath-llamaindex = { index = "testpypi" }

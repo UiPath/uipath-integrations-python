@@ -22,7 +22,7 @@ def generate_script(target_directory):
     target_path = os.path.join(target_directory, "google_adk.json")
     shutil.copyfile(template_google_adk_json_path, target_path)
 
-    # Copy Google ADK-specific AGENTS.md template (overrides generic one)
+    # Copy Google ADK-specific AGENTS.md template
     template_agents_md_path = os.path.join(
         os.path.dirname(__file__), "_templates/AGENTS.md.template"
     )

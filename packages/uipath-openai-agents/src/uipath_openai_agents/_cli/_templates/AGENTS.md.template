@@ -2,20 +2,4 @@
 
 This document provides practical code patterns for building UiPath coded agents using the **OpenAI Agents SDK**.
 
----
-
-## Documentation Structure
-
-This documentation is split into multiple files for efficient context loading. Load only the files you need:
-
-1. **@.agent/REQUIRED_STRUCTURE.md** - OpenAI Agent patterns and templates
-   - **When to load:** Creating a new OpenAI agent or understanding required patterns
-   - **Contains:** Agent definition patterns (`Agent`, `Runner`, `@tool`), registration in `openai_agents.json`, input/output format (simple message/messages), UiPath integration setup
-
-2. **@.agent/SDK_REFERENCE.md** - OpenAI Agents SDK and UiPath integration reference
-   - **When to load:** Working with OpenAI Agents SDK methods, tools, handoffs, or UiPath services
-   - **Contains:** Complete OpenAI Agents SDK API (Agent, Runner, tool decorator), UiPathChatOpenAI client, supported models, UiPath services integration patterns
-
-3. **@.agent/CLI_REFERENCE.md** - CLI commands documentation
-   - **When to load:** Working with `uipath init`, `uipath run agent`, or deployment commands
-   - **Contains:** Command syntax for OpenAI agents, options, input formats (`{"messages": "..."}` or `{"messages": [...]}`), debug mode, usage examples
+Run with: `uipath run agent '{"messages": "Hello!"}'`

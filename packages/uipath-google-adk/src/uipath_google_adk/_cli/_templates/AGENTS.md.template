@@ -1,21 +1,5 @@
-# Agent Code Patterns Reference
+# UiPath Google ADK Agent Project
 
-This document provides practical code patterns for building UiPath coded agents using **Google ADK** (Agent Development Kit).
+This is a UiPath coded agent project using Google ADK (Agent Development Kit).
 
----
-
-## Documentation Structure
-
-This documentation is split into multiple files for efficient context loading. Load only the files you need:
-
-1. **@.agent/REQUIRED_STRUCTURE.md** - Google ADK Agent patterns and templates
-   - **When to load:** Creating a new Google ADK agent or understanding required patterns
-   - **Contains:** Agent definition patterns (`Agent`, `SequentialAgent`, `ParallelAgent`), registration in `google_adk.json`, input/output format (simple message/messages), UiPath integration setup
-
-2. **@.agent/SDK_REFERENCE.md** - Google ADK and UiPath integration reference
-   - **When to load:** Working with Google ADK methods, tools, sub-agents, or UiPath services
-   - **Contains:** Complete Google ADK API (Agent, InMemoryRunner, FunctionTool), UiPath services integration patterns
-
-3. **@.agent/CLI_REFERENCE.md** - CLI commands documentation
-   - **When to load:** Working with `uipath init`, `uipath run agent`, or deployment commands
-   - **Contains:** Command syntax for Google ADK agents, options, input formats (`{"messages": "..."}` or `{"messages": [...]}`), debug mode, usage examples
+Run with: `uipath run agent '{"messages": "Hello!"}'`

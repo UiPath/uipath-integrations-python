@@ -116,7 +116,7 @@ To properly use the CLI for packaging and publishing, your project should includ
 
 ### Developer Tools
 
-Check out [uipath-dev](https://github.com/uipath/uipath-dev-python) - an interactive terminal application for building, testing, and debugging UiPath Python runtimes, agents, and automation scripts.
+Check out [uipath-dev](https://github.com/uipath/uipath-dev-python) - an interactive application for building, testing, and debugging UiPath Python runtimes, agents, and automation scripts.
 
 ### Setting Up a Development Environment
 

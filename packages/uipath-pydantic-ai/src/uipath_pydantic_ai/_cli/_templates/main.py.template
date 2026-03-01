@@ -1,0 +1,32 @@
+from pydantic_ai import Agent
+
+from uipath_pydantic_ai.chat import UiPathChatOpenAI
+from uipath_pydantic_ai.chat.supported_models import OpenAIModels
+
+MODEL = OpenAIModels.gpt_5_1_2025_11_13
+
+# Initialize the UiPath OpenAI client for PydanticAI
+uipath_openai_client = UiPathChatOpenAI(model_name=MODEL)
+
+
+def get_weather(ctx, location: str) -> str:
+    """Get the current weather for a location.
+
+    Args:
+        ctx: The agent context.
+        location: The city and state, e.g. "San Francisco, CA"
+
+    Returns:
+        Weather information for the location
+    """
+    # This is a mock implementation
+    return f"The weather in {location} is sunny and 32 degrees Celsius."
+
+
+# Create an agent with tools
+agent = Agent(
+    uipath_openai_client.model,
+    name="weather_agent",
+    system_prompt="You are a helpful weather assistant. Use the get_weather tool to provide weather information.",
+    tools=[get_weather],
+)

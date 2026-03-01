@@ -5,7 +5,7 @@ from typing import Optional
 
 import httpx
 from openai import AsyncOpenAI, OpenAI
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from uipath._utils._ssl_context import get_httpx_client_kwargs
 from uipath.utils import EndpointManager
@@ -74,7 +74,7 @@ class UiPathChatOpenAI:
 
     This client wraps the OpenAI SDK and configures it to use UiPath's
     LLM Gateway endpoints with proper authentication and headers.
-    Returns PydanticAI-compatible OpenAIModel instances.
+    Returns PydanticAI-compatible OpenAIChatModel instances.
 
     Example:
         ```python
@@ -173,7 +173,7 @@ class UiPathChatOpenAI:
         )
 
         # Create PydanticAI-compatible model
-        self._model = OpenAIModel(
+        self._model = OpenAIChatModel(
             self._model_name,
             provider=OpenAIProvider(openai_client=self._async_client),
         )
@@ -225,8 +225,8 @@ class UiPathChatOpenAI:
             raise ValueError("UIPATH_URL environment variable is required")
 
     @property
-    def model(self) -> OpenAIModel:
-        """Get the PydanticAI-compatible OpenAIModel."""
+    def model(self) -> OpenAIChatModel:
+        """Get the PydanticAI-compatible OpenAIChatModel."""
         return self._model
 
     @property

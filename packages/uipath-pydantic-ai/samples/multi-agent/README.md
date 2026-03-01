@@ -19,7 +19,7 @@ flowchart TB
 ## Run
 
 ```
-uipath run agent '{"messages": "Write a report about machine learning"}'
+uipath run agent '{"messages": [{"contentParts": [{"data": {"inline": "Write a report about machine learning"}}], "role": "user"}]}'
 ```
 
 ## Debug

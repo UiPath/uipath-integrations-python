@@ -13,6 +13,7 @@ All packages extend the [UiPath Python SDK](https://github.com/UiPath/uipath-pyt
 | [LlamaIndex](https://www.llamaindex.ai/) | [![PyPI](https://img.shields.io/pypi/v/uipath-llamaindex)](https://pypi.org/project/uipath-llamaindex/) | [![Downloads](https://img.shields.io/pypi/dm/uipath-llamaindex.svg)](https://pypi.org/project/uipath-llamaindex/) | [README](packages/uipath-llamaindex/README.md) · [Docs](https://uipath.github.io/uipath-python/llamaindex/quick_start/) · [Samples](packages/uipath-llamaindex/samples/) |
 | [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) | [![PyPI](https://img.shields.io/pypi/v/uipath-agent-framework)](https://pypi.org/project/uipath-agent-framework/) | [![Downloads](https://img.shields.io/pypi/dm/uipath-agent-framework.svg)](https://pypi.org/project/uipath-agent-framework/) | [README](packages/uipath-agent-framework/README.md) · [Samples](packages/uipath-agent-framework/samples/) |
 | [OpenAI Agents](https://github.com/openai/openai-agents-python) | [![PyPI](https://img.shields.io/pypi/v/uipath-openai-agents)](https://pypi.org/project/uipath-openai-agents/) | [![Downloads](https://img.shields.io/pypi/dm/uipath-openai-agents.svg)](https://pypi.org/project/uipath-openai-agents/) | [README](packages/uipath-openai-agents/README.md) · [Docs](https://uipath.github.io/uipath-python/openai-agents/quick_start/) · [Samples](packages/uipath-openai-agents/samples/) |
+| [PydanticAI](https://github.com/pydantic/pydantic-ai) | [![PyPI](https://img.shields.io/pypi/v/uipath-pydantic-ai)](https://pypi.org/project/uipath-pydantic-ai/) | [![Downloads](https://img.shields.io/pypi/dm/uipath-pydantic-ai.svg)](https://pypi.org/project/uipath-pydantic-ai/) | [README](packages/uipath-pydantic-ai/README.md) · [Samples](packages/uipath-pydantic-ai/samples/) |
 
 
 ## Structure
@@ -25,7 +26,8 @@ uipath-integrations-python/
     ├── uipath-llamaindex/      # LlamaIndex runtime
     ├── uipath-openai-agents/   # OpenAI Agents runtime
     ├── uipath-google-adk/      # Google ADK runtime
-    └── uipath-agent-framework/ # Microsoft Agent Framework runtime
+    ├── uipath-agent-framework/ # Microsoft Agent Framework runtime
+    └── uipath-pydantic-ai/     # PydanticAI runtime
 ```
 
 ## Development

@@ -1,10 +1,10 @@
 import httpx
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 
 from uipath_pydantic_ai.chat import UiPathChatOpenAI
 
 
-def get_weather(ctx, location: str) -> str:
+def get_weather(ctx: RunContext[None], location: str) -> str:
     """Get the current weather for a location using the Open-Meteo API.
 
     Args:

@@ -1,6 +1,6 @@
 [project]
 name = "uipath-pydantic-ai"
-version = "0.0.1"
+version = "0.0.2"
 description = "Python SDK that enables developers to build and deploy PydanticAI agents to the UiPath Cloud Platform"
 readme = "README.md"
 requires-python = ">=3.11"

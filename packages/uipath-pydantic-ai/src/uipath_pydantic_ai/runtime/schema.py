@@ -37,6 +37,21 @@ def _get_agent_name(agent: Agent[Any, Any]) -> str:
     return agent.name or "agent"
 
 
+def _get_model_name(agent: Agent[Any, Any]) -> str | None:
+    """Extract the model name from a PydanticAI Agent."""
+    try:
+        model = agent.model
+        if model is None:
+            return None
+        if isinstance(model, str):
+            return model
+        if hasattr(model, "model_name"):
+            return model.model_name
+    except Exception:
+        pass
+    return None
+
+
 def _get_tool_names(agent: Agent[Any, Any]) -> list[str]:
     """Get the list of function tool names from an agent."""
     tool_names: list[str] = []
@@ -117,7 +132,7 @@ def get_entrypoints_schema(agent: Agent[Any, Any]) -> dict[str, Any]:
 
     Output schema:
     - If agent has output_type (Pydantic model): output IS that model's schema
-    - Otherwise: generic result fallback
+    - Otherwise: UiPath conversation message format
     """
     # --- Input schema ---
     deps_type = get_deps_type(agent)
@@ -127,21 +142,8 @@ def get_entrypoints_schema(agent: Agent[Any, Any]) -> dict[str, Any]:
         input_schema = None
 
     if input_schema is None:
-        # Conversational fallback: messages-only input
-        input_schema = {
-            "type": "object",
-            "properties": {
-                "messages": {
-                    "anyOf": [
-                        {"type": "string"},
-                        {"type": "array", "items": {"type": "object"}},
-                    ],
-                    "title": "Messages",
-                    "description": "User messages to send to the agent",
-                },
-            },
-            "required": ["messages"],
-        }
+        # Conversational fallback: UiPath conversation message format
+        input_schema = _default_messages_schema()
 
     # --- Output schema ---
     output_type = _get_output_type(agent)
@@ -151,22 +153,8 @@ def get_entrypoints_schema(agent: Agent[Any, Any]) -> dict[str, Any]:
         output_schema = _extract_schema_from_model(output_type)
 
     if output_schema is None:
-        # Generic result fallback
-        output_schema = {
-            "type": "object",
-            "properties": {
-                "result": {
-                    "title": "Result",
-                    "description": "The agent's response",
-                    "anyOf": [
-                        {"type": "string"},
-                        {"type": "object"},
-                        {"type": "array", "items": {"type": "object"}},
-                    ],
-                }
-            },
-            "required": ["result"],
-        }
+        # Conversational fallback: UiPath conversation message format
+        output_schema = _default_messages_schema()
 
     return {"input": input_schema, "output": output_schema}
 
@@ -189,13 +177,17 @@ def get_agent_schema(agent: Agent[Any, Any]) -> UiPathRuntimeGraph:
             return
         visited.add(agent_name)
 
+        model_name = _get_model_name(current_agent)
+        node_type = "model" if model_name else "node"
+        metadata = {"model_name": model_name} if model_name else None
+
         nodes.append(
             UiPathRuntimeNode(
                 id=agent_name,
                 name=agent_name,
-                type="node",
+                type=node_type,
                 subgraph=None,
-                metadata=None,
+                metadata=metadata,
             )
         )
 
@@ -274,6 +266,56 @@ def get_agent_schema(agent: Agent[Any, Any]) -> UiPathRuntimeGraph:
     )
 
     return UiPathRuntimeGraph(nodes=nodes, edges=edges)
+
+
+def _conversation_message_item_schema() -> dict[str, Any]:
+    """Minimal message schema: role and contentParts required, contentParts items only need data.inline."""
+    return {
+        "type": "object",
+        "properties": {
+            "role": {"type": "string"},
+            "contentParts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "mimeType": {"type": "string"},
+                        "data": {
+                            "type": "object",
+                            "properties": {
+                                "inline": {},
+                            },
+                            "required": ["inline"],
+                        },
+                        "citations": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                        },
+                    },
+                    "required": ["data"],
+                },
+            },
+            "toolCalls": {"type": "array", "items": {"type": "object"}},
+            "interrupts": {"type": "array", "items": {"type": "object"}},
+        },
+        "required": ["role", "contentParts"],
+    }
+
+
+def _default_messages_schema() -> dict[str, Any]:
+    """Default messages schema using UiPath conversation message format."""
+    return {
+        "type": "object",
+        "properties": {
+            "messages": {
+                "type": "array",
+                "items": _conversation_message_item_schema(),
+                "title": "Messages",
+                "description": "UiPath conversation messages",
+            }
+        },
+        "required": ["messages"],
+    }
 
 
 __all__ = [

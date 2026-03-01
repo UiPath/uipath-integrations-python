@@ -63,83 +63,145 @@ class UiPathPydanticAIRuntime:
         input: dict[str, Any] | None = None,
         options: UiPathStreamOptions | None = None,
     ) -> AsyncGenerator[UiPathRuntimeEvent, None]:
-        """Stream agent execution events in real-time.
+        """Stream agent execution events in real-time."""
+        from pydantic_graph import End
 
-        Uses agent.iter() for node-level iteration, emitting
-        UiPathRuntimeStateEvent with node_name and phase (STARTED/COMPLETED)
-        to drive graph node highlighting in the UI.
-
-        Node mapping to graph nodes (from schema.py):
-        - ModelRequestNode -> agent node (STARTED/COMPLETED)
-        - CallToolsNode   -> {agent}_tools node (STARTED/COMPLETED)
-        """
         try:
             user_prompt, deps = self._prepare_input(input)
             agent_name = self.agent.name or "agent"
-            tools_node = f"{agent_name}_tools"
+            tools_node_name = f"{agent_name}_tools"
             has_tools = any(
                 ts.tools
                 for ts in self.agent.toolsets
                 if isinstance(ts, FunctionToolset)
             )
 
-            # Signal agent node STARTED
-            yield UiPathRuntimeStateEvent(
-                payload={},
-                node_name=agent_name,
-                phase=UiPathRuntimeStatePhase.STARTED,
-            )
-
             async with self.agent.iter(user_prompt, deps=deps) as agent_run:
-                async for node in agent_run:
+                node = agent_run.next_node
+
+                while not isinstance(node, End):
                     if Agent.is_model_request_node(node):
-                        # LLM call: highlight agent node
                         yield UiPathRuntimeStateEvent(
-                            payload={},
+                            payload=self._model_request_payload(node),
                             node_name=agent_name,
                             phase=UiPathRuntimeStatePhase.STARTED,
                         )
 
+                        model_node = node
+                        node = await agent_run.next(node)
+
                         yield UiPathRuntimeMessageEvent(
-                            payload=json.loads(serialize_json(node.request)),
+                            payload=json.loads(serialize_json(model_node.request)),
                             metadata={"event_name": "model_request"},
                         )
 
                         yield UiPathRuntimeStateEvent(
-                            payload={},
+                            payload=self._model_response_payload(node),
                             node_name=agent_name,
                             phase=UiPathRuntimeStatePhase.COMPLETED,
                         )
 
-                    elif Agent.is_call_tools_node(node) and has_tools:
-                        # Tool execution: highlight tools node
-                        yield UiPathRuntimeStateEvent(
-                            payload={},
-                            node_name=tools_node,
-                            phase=UiPathRuntimeStatePhase.STARTED,
-                        )
+                    elif Agent.is_call_tools_node(node):
+                        tool_calls = node.model_response.tool_calls if has_tools else []
 
-                        yield UiPathRuntimeStateEvent(
-                            payload={},
-                            node_name=tools_node,
-                            phase=UiPathRuntimeStatePhase.COMPLETED,
-                        )
+                        if tool_calls:
+                            yield UiPathRuntimeStateEvent(
+                                payload={
+                                    "tool_calls": [
+                                        {"tool_name": tc.tool_name} for tc in tool_calls
+                                    ],
+                                },
+                                node_name=tools_node_name,
+                                phase=UiPathRuntimeStatePhase.STARTED,
+                            )
 
-                # Capture result inside the async with block
+                        node = await agent_run.next(node)
+
+                        if tool_calls:
+                            yield UiPathRuntimeStateEvent(
+                                payload=self._tool_results_payload(node),
+                                node_name=tools_node_name,
+                                phase=UiPathRuntimeStatePhase.COMPLETED,
+                            )
+
+                    else:
+                        node = await agent_run.next(node)
+
                 assert agent_run.result is not None
                 final_output = agent_run.result.output
-
-            # Signal agent node COMPLETED
-            yield UiPathRuntimeStateEvent(
-                payload={},
-                node_name=agent_name,
-                phase=UiPathRuntimeStatePhase.COMPLETED,
-            )
 
             yield self._create_success_result(final_output)
 
         except Exception as e:
             raise self._create_runtime_error(e) from e
+
+    @staticmethod
+    def _model_request_payload(node: Any) -> dict[str, Any]:
+        """Build payload for a ModelRequestNode STARTED event."""
+        payload: dict[str, Any] = {}
+        try:
+            parts = node.request.parts if node.request else []
+            prompt_parts = [
+                p.content
+                for p in parts
+                if hasattr(p, "content") and isinstance(p.content, str)
+            ]
+            if prompt_parts:
+                payload["prompt"] = prompt_parts[-1]
+        except Exception:
+            pass
+        return payload
+
+    @staticmethod
+    def _model_response_payload(next_node: Any) -> dict[str, Any]:
+        """Build payload for a ModelRequestNode COMPLETED event.
+
+        After agent_run.next() the returned node is the CallToolsNode
+        which carries the model_response with usage data.
+        """
+        payload: dict[str, Any] = {}
+        try:
+            response = next_node.model_response
+            if response.model_name:
+                payload["model_name"] = response.model_name
+            usage = response.usage
+            if usage:
+                payload["usage"] = {
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                }
+        except Exception:
+            pass
+        return payload
+
+    @staticmethod
+    def _tool_results_payload(next_node: Any) -> dict[str, Any]:
+        """Build payload for a CallToolsNode COMPLETED event.
+
+        After agent_run.next() the returned node is a ModelRequestNode
+        whose request.parts contain ToolReturnPart objects with results.
+        """
+        from pydantic_ai.messages import ToolReturnPart
+
+        payload: dict[str, Any] = {}
+        try:
+            parts = next_node.request.parts if next_node.request else []
+            results = []
+            for p in parts:
+                if not isinstance(p, ToolReturnPart):
+                    continue
+                result: dict[str, Any] = {"tool_name": p.tool_name}
+                content = p.content
+                if isinstance(content, (str, dict, list)):
+                    result["content"] = content
+                else:
+                    result["content"] = str(content)
+                results.append(result)
+            if results:
+                payload["tool_results"] = results
+        except Exception:
+            pass
+        return payload
 
     def _prepare_input(
         self, input: dict[str, Any] | None
@@ -172,33 +234,77 @@ class UiPathPydanticAIRuntime:
         return self._extract_messages(input), None
 
     def _extract_messages(self, input: dict[str, Any]) -> str:
-        """Extract a user prompt string from the 'messages' field."""
-        messages = input.get("messages", "")
-        if not isinstance(messages, (str, list)):
+        """Extract a user prompt string from the 'messages' field.
+
+        Expects UiPath conversation format:
+        [{"role": "user", "contentParts": [{"data": {"inline": "..."}}]}]
+        """
+        messages = input.get("messages")
+        if not isinstance(messages, list) or not messages:
             return ""
 
-        if isinstance(messages, list):
-            parts = []
-            for msg in messages:
-                if isinstance(msg, dict):
-                    parts.append(str(msg.get("content", "")))
-                else:
-                    parts.append(str(msg))
-            return " ".join(parts)
+        # Extract text from the last user message
+        for msg in reversed(messages):
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role", "")
+            if role and role != "user":
+                continue
+            text = self._extract_text_from_content_parts(msg)
+            if text:
+                return text
 
-        return messages
+        # Fallback: extract from last message regardless of role
+        if isinstance(messages[-1], dict):
+            text = self._extract_text_from_content_parts(messages[-1])
+            if text:
+                return text
+
+        return ""
+
+    @staticmethod
+    def _extract_text_from_content_parts(msg: dict[str, Any]) -> str:
+        """Extract text from a message's contentParts in UiPath conversation format."""
+        content_parts = msg.get("contentParts")
+        if not isinstance(content_parts, list):
+            return ""
+
+        texts: list[str] = []
+        for cp in content_parts:
+            if not isinstance(cp, dict):
+                continue
+            data = cp.get("data")
+            if isinstance(data, dict) and "inline" in data:
+                inline = data["inline"]
+                if isinstance(inline, str) and inline:
+                    texts.append(inline)
+        return "".join(texts)
 
     def _create_success_result(self, output: Any) -> UiPathRuntimeResult:
         """Create result for successful completion."""
-        serialized_output = json.loads(serialize_json(output))
-
-        if not isinstance(serialized_output, dict):
-            serialized_output = {"result": serialized_output}
+        if self.agent.output_type is str and isinstance(output, str):
+            serialized_output = self._wrap_as_conversation_message(output)
+        else:
+            serialized_output = json.loads(serialize_json(output))
+            if not isinstance(serialized_output, dict):
+                serialized_output = {"result": serialized_output}
 
         return UiPathRuntimeResult(
             output=serialized_output,
             status=UiPathRuntimeStatus.SUCCESSFUL,
         )
+
+    @staticmethod
+    def _wrap_as_conversation_message(text: str) -> dict[str, Any]:
+        """Wrap a plain string as a UiPath conversation message output."""
+        return {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "contentParts": [{"data": {"inline": text}}],
+                }
+            ]
+        }
 
     def _create_runtime_error(self, e: Exception) -> UiPathPydanticAIRuntimeError:
         """Map exceptions to appropriate runtime errors."""

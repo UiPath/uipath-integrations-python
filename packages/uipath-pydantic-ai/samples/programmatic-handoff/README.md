@@ -24,7 +24,7 @@ flowchart TB
 ## Run
 
 ```
-uipath run agent '{"messages": "I was charged twice for my subscription last month"}'
+uipath run agent '{"messages": [{"contentParts": [{"data": {"inline": "I was charged twice for my subscription last month"}}], "role": "user"}]}'
 ```
 
 ## Debug

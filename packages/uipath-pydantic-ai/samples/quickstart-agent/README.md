@@ -19,11 +19,11 @@ flowchart TB
 ## Run
 
 ```
-uipath run agent '{"messages": "What is the weather in San Francisco?"}'
+uipath run agent '{"messages": [{"contentParts": [{"data": {"inline": "What is the weather in San Francisco?"}}], "role": "user"}]}'
 ```
 
 ## Debug
 
 ```
-uipath dev web
+uipath dev
 ```

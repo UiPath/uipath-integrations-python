@@ -34,7 +34,7 @@ flowchart TB
 ## Run
 
 ```
-uipath run agent '{"messages": "Write a blog post about the future of AI agents"}'
+uipath run agent '{"messages": [{"contentParts": [{"data": {"inline": "Write a blog post about the future of AI agents"}}], "role": "user"}]}'
 ```
 
 ## Debug

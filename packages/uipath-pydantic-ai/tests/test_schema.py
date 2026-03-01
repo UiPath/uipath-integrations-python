@@ -1,5 +1,7 @@
 """Tests for PydanticAI schema extraction and graph building."""
 
+from typing import Any
+
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
@@ -211,11 +213,14 @@ def test_schema_with_output_type():
 
 
 def test_schema_fallback_without_output_type():
-    """Test that schema falls back to defaults when no output_type."""
+    """Test that schema falls back to UiPath conversation messages when no output_type."""
     schema = get_entrypoints_schema(agent_plain)
 
     assert "messages" in schema["input"]["properties"]
-    assert "result" in schema["output"]["properties"]
+    # Output should be UiPath conversation messages, not a generic "result"
+    assert "messages" in schema["output"]["properties"]
+    output_messages = schema["output"]["properties"]["messages"]
+    assert output_messages["type"] == "array"
 
 
 def test_schema_with_plain_agent():
@@ -223,7 +228,7 @@ def test_schema_with_plain_agent():
     schema = get_entrypoints_schema(agent_plain)
 
     assert "messages" in schema["input"]["properties"]
-    assert "result" in schema["output"]["properties"]
+    assert "messages" in schema["output"]["properties"]
 
 
 # ============= GRAPH TESTS =============
@@ -262,7 +267,7 @@ def test_graph_node_types():
 
     assert node_types["__start__"] == "__start__"
     assert node_types["__end__"] == "__end__"
-    assert node_types["tools_agent"] == "node"
+    assert node_types["tools_agent"] == "model"
     assert node_types["tools_agent_tools"] == "tool"
 
 
@@ -284,6 +289,28 @@ def test_graph_tool_edges():
 
     assert ("tools_agent", "tools_agent_tools", None) in edges
     assert ("tools_agent_tools", "tools_agent", None) in edges
+
+
+def test_graph_agent_model_metadata():
+    """Test that agent nodes with a model have model_name metadata."""
+    graph = get_agent_schema(agent_with_tools)
+
+    node_map = {node.id: node for node in graph.nodes}
+    agent_node = node_map["tools_agent"]
+    assert agent_node.type == "model"
+    assert agent_node.metadata is not None
+    assert agent_node.metadata["model_name"] == "test"
+
+
+def test_graph_agent_without_model():
+    """Test that agent nodes without a model use type=node."""
+    no_model_agent = Agent(None, name="no_model", defer_model_check=True)
+    graph = get_agent_schema(no_model_agent)
+
+    node_map = {node.id: node for node in graph.nodes}
+    agent_node = node_map["no_model"]
+    assert agent_node.type == "node"
+    assert agent_node.metadata is None
 
 
 def test_graph_tools_metadata():
@@ -313,3 +340,96 @@ def test_graph_no_subgraphs():
 
     for node in graph.nodes:
         assert node.subgraph is None
+
+
+# ============= UIPATH CONVERSATION MESSAGE FORMAT TESTS =============
+
+
+def _validate_conversation_message_schema(schema: dict[str, Any]) -> None:
+    """Helper to validate that a schema matches the UiPath conversation message format."""
+    assert schema["type"] == "object"
+    assert "messages" in schema["properties"]
+    assert "messages" in schema["required"]
+
+    messages_prop = schema["properties"]["messages"]
+    assert messages_prop["type"] == "array"
+    assert "items" in messages_prop
+
+    item = messages_prop["items"]
+    assert item["type"] == "object"
+    assert "role" in item["properties"]
+    assert item["properties"]["role"]["type"] == "string"
+    assert "contentParts" in item["properties"]
+    assert "role" in item["required"]
+    assert "contentParts" in item["required"]
+
+    content_parts = item["properties"]["contentParts"]
+    assert content_parts["type"] == "array"
+    cp_item = content_parts["items"]
+    assert cp_item["type"] == "object"
+    assert "data" in cp_item["properties"]
+    assert "data" in cp_item["required"]
+
+    data_prop = cp_item["properties"]["data"]
+    assert data_prop["type"] == "object"
+    assert "inline" in data_prop["properties"]
+    assert "inline" in data_prop["required"]
+
+
+def test_default_input_schema_is_uipath_messages():
+    """Test that conversational agents get UiPath conversation message input schema."""
+    schema = get_entrypoints_schema(agent_plain)
+    _validate_conversation_message_schema(schema["input"])
+
+
+def test_default_output_schema_is_uipath_messages():
+    """Test that conversational agents get UiPath conversation message output schema."""
+    schema = get_entrypoints_schema(agent_plain)
+    _validate_conversation_message_schema(schema["output"])
+
+
+def test_output_only_agent_has_uipath_messages_input():
+    """Test agent with output_type still uses UiPath messages for input."""
+    schema = get_entrypoints_schema(agent_with_output)
+    _validate_conversation_message_schema(schema["input"])
+    # Output should be the structured model, not messages
+    assert "original_text" in schema["output"]["properties"]
+
+
+def test_deps_only_agent_has_uipath_messages_output():
+    """Test agent with deps_type still uses UiPath messages for output."""
+    schema = get_entrypoints_schema(agent_with_deps)
+    _validate_conversation_message_schema(schema["output"])
+    # Input should be the structured model, not messages
+    assert "text" in schema["input"]["properties"]
+
+
+def test_message_schema_has_optional_fields():
+    """Test that the message schema includes optional fields like toolCalls and interrupts."""
+    schema = get_entrypoints_schema(agent_plain)
+    item = schema["input"]["properties"]["messages"]["items"]
+    assert "toolCalls" in item["properties"]
+    assert "interrupts" in item["properties"]
+    assert "mimeType" in item["properties"]["contentParts"]["items"]["properties"]
+    assert "citations" in item["properties"]["contentParts"]["items"]["properties"]
+
+
+def test_message_schema_structure():
+    """Test that the default message schema has the correct UiPath structure."""
+    schema = get_entrypoints_schema(agent_plain)
+    input_schema = schema["input"]
+
+    messages_prop = input_schema["properties"]["messages"]
+    assert messages_prop["title"] == "Messages"
+    assert messages_prop["description"] == "UiPath conversation messages"
+
+    item = messages_prop["items"]
+    # toolCalls and interrupts should be arrays of objects
+    assert item["properties"]["toolCalls"] == {
+        "type": "array",
+        "items": {"type": "object"},
+    }
+    assert item["properties"]["interrupts"] == {
+        "type": "array",
+        "items": {"type": "object"},
+    }

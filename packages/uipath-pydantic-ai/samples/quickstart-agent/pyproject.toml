@@ -8,7 +8,7 @@ requires-python = ">=3.11"
 dependencies = [
     "uipath",
     "uipath-pydantic-ai",
-    "pydantic-ai>=0.1.0",
+    "pydantic-ai>=1.63.0",
 ]
 
 [dependency-groups]

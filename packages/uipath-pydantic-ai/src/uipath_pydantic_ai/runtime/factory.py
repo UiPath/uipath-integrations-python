@@ -58,6 +58,7 @@ class UiPathPydanticAIRuntimeFactory:
                 self.context.trace_manager.add_span_processor(
                     OpenInferenceSpanProcessor()
                 )
+                Agent.instrument_all()
         except Exception:
             pass
 

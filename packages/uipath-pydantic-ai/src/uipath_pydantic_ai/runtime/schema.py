@@ -286,11 +286,11 @@ def _conversation_message_item_schema() -> dict[str, Any]:
                                 "inline": {},
                             },
                             "required": ["inline"],
-                        }
+                        },
                     },
                     "required": ["data"],
                 },
-            }
+            },
         },
         "required": ["role", "contentParts"],
     }

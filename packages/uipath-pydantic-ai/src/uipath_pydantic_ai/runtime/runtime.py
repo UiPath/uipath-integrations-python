@@ -7,8 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, FunctionToolset
-from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
-from pydantic_ai.messages import ModelResponse, ToolReturnPart
+from pydantic_ai.messages import ToolReturnPart
 from uipath.core.chat.content import (
     UiPathConversationContentPartChunkEvent,
     UiPathConversationContentPartEndEvent,
@@ -154,12 +153,12 @@ class UiPathPydanticAIRuntime:
                                 ),
                             )
 
-                        assert isinstance(next_node, CallToolsNode)
-                        yield UiPathRuntimeStateEvent(
-                            payload=self._model_response_payload(next_node),
-                            node_name=agent_name,
-                            phase=UiPathRuntimeStatePhase.COMPLETED,
-                        )
+                        if Agent.is_call_tools_node(next_node):
+                            yield UiPathRuntimeStateEvent(
+                                payload=self._model_response_payload(next_node),
+                                node_name=agent_name,
+                                phase=UiPathRuntimeStatePhase.COMPLETED,
+                            )
                         node = next_node
 
                     elif Agent.is_call_tools_node(node):
@@ -178,7 +177,7 @@ class UiPathPydanticAIRuntime:
 
                         next_node = await agent_run.next(node)
 
-                        if tool_calls and isinstance(next_node, ModelRequestNode):
+                        if tool_calls and Agent.is_model_request_node(next_node):
                             yield UiPathRuntimeStateEvent(
                                 payload=self._tool_results_payload(next_node),
                                 node_name=tools_node_name,
@@ -204,9 +203,7 @@ class UiPathPydanticAIRuntime:
         return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
     @staticmethod
-    def _model_request_payload(
-        node: ModelRequestNode[Any, Any],
-    ) -> dict[str, Any]:
+    def _model_request_payload(node: Any) -> dict[str, Any]:
         """Build payload for a ModelRequestNode STARTED event."""
         payload: dict[str, Any] = {}
         try:
@@ -223,9 +220,7 @@ class UiPathPydanticAIRuntime:
         return payload
 
     @staticmethod
-    def _model_response_payload(
-        next_node: CallToolsNode[Any, Any],
-    ) -> dict[str, Any]:
+    def _model_response_payload(next_node: Any) -> dict[str, Any]:
         """Build payload for a ModelRequestNode COMPLETED event.
 
         After agent_run.next() the returned node is the CallToolsNode
@@ -233,7 +228,7 @@ class UiPathPydanticAIRuntime:
         """
         payload: dict[str, Any] = {}
         try:
-            response: ModelResponse = next_node.model_response
+            response = next_node.model_response
             if response.model_name:
                 payload["model_name"] = response.model_name
             usage = response.usage
@@ -247,9 +242,7 @@ class UiPathPydanticAIRuntime:
         return payload
 
     @staticmethod
-    def _tool_results_payload(
-        next_node: ModelRequestNode[Any, Any],
-    ) -> dict[str, Any]:
+    def _tool_results_payload(next_node: Any) -> dict[str, Any]:
         """Build payload for a CallToolsNode COMPLETED event.
 
         After agent_run.next() the returned node is a ModelRequestNode

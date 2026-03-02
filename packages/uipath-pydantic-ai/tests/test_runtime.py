@@ -721,11 +721,7 @@ async def test_stream_with_tools_emits_message_events():
     assert len(ends) >= 1
 
     # Text chunks should exist
-    chunks = [
-        e
-        for e in msg_events
-        if e.content_part and e.content_part.chunk
-    ]
+    chunks = [e for e in msg_events if e.content_part and e.content_part.chunk]
     assert len(chunks) >= 1
 
 
@@ -733,7 +729,10 @@ async def test_stream_with_tools_emits_message_events():
 async def test_stream_tool_only_turn_skips_message_events():
     """Model turns that produce only tool calls (no text) should not emit message events."""
     from pydantic_ai.models.test import TestModel
-    from uipath.runtime.events import UiPathRuntimeStateEvent
+    from uipath.runtime.events import (
+        UiPathRuntimeStateEvent,
+        UiPathRuntimeStatePhase,
+    )
 
     def my_tool(ctx, query: str) -> str:
         """A tool.
@@ -761,9 +760,9 @@ async def test_stream_tool_only_turn_skips_message_events():
 
     # Should have multiple model turns via state events (tool turn + final turn)
     agent_started = [
-        e for e in state_events
-        if e.node_name == "skip_agent"
-        and e.phase.value == "started"
+        e
+        for e in state_events
+        if e.node_name == "skip_agent" and e.phase == UiPathRuntimeStatePhase.STARTED
     ]
     assert len(agent_started) >= 2  # at least 2 model request turns
 

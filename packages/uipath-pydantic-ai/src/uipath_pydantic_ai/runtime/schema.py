@@ -286,17 +286,11 @@ def _conversation_message_item_schema() -> dict[str, Any]:
                                 "inline": {},
                             },
                             "required": ["inline"],
-                        },
-                        "citations": {
-                            "type": "array",
-                            "items": {"type": "object"},
-                        },
+                        }
                     },
                     "required": ["data"],
                 },
-            },
-            "toolCalls": {"type": "array", "items": {"type": "object"}},
-            "interrupts": {"type": "array", "items": {"type": "object"}},
+            }
         },
         "required": ["role", "contentParts"],
     }

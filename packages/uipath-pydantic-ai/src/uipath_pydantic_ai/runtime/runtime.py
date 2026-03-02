@@ -1,11 +1,25 @@
 """Runtime class for executing PydanticAI Agents within the UiPath framework."""
 
 import json
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, FunctionToolset
+from pydantic_ai._agent_graph import CallToolsNode, ModelRequestNode
+from pydantic_ai.messages import ModelResponse, ToolReturnPart
+from uipath.core.chat.content import (
+    UiPathConversationContentPartChunkEvent,
+    UiPathConversationContentPartEndEvent,
+    UiPathConversationContentPartEvent,
+    UiPathConversationContentPartStartEvent,
+)
+from uipath.core.chat.message import (
+    UiPathConversationMessageEndEvent,
+    UiPathConversationMessageEvent,
+    UiPathConversationMessageStartEvent,
+)
 from uipath.core.serialization import serialize_json
 from uipath.runtime import (
     UiPathExecuteOptions,
@@ -88,18 +102,65 @@ class UiPathPydanticAIRuntime:
                         )
 
                         model_node = node
-                        node = await agent_run.next(node)
+                        message_id = str(uuid4())
+                        content_part_id = f"chunk-{message_id}-0"
+                        has_text = False
 
-                        yield UiPathRuntimeMessageEvent(
-                            payload=json.loads(serialize_json(model_node.request)),
-                            metadata={"event_name": "model_request"},
-                        )
+                        async with model_node.stream(agent_run.ctx) as stream:
+                            async for text_chunk in stream.stream_text(
+                                delta=True, debounce_by=None
+                            ):
+                                if not has_text:
+                                    has_text = True
+                                    yield UiPathRuntimeMessageEvent(
+                                        payload=UiPathConversationMessageEvent(
+                                            message_id=message_id,
+                                            start=UiPathConversationMessageStartEvent(
+                                                role="assistant",
+                                                timestamp=self._get_timestamp(),
+                                            ),
+                                            content_part=UiPathConversationContentPartEvent(
+                                                content_part_id=content_part_id,
+                                                start=UiPathConversationContentPartStartEvent(
+                                                    mime_type="text/plain",
+                                                ),
+                                            ),
+                                        ),
+                                    )
 
+                                yield UiPathRuntimeMessageEvent(
+                                    payload=UiPathConversationMessageEvent(
+                                        message_id=message_id,
+                                        content_part=UiPathConversationContentPartEvent(
+                                            content_part_id=content_part_id,
+                                            chunk=UiPathConversationContentPartChunkEvent(
+                                                data=text_chunk,
+                                            ),
+                                        ),
+                                    ),
+                                )
+
+                        next_node = await agent_run.next(model_node)
+
+                        if has_text:
+                            yield UiPathRuntimeMessageEvent(
+                                payload=UiPathConversationMessageEvent(
+                                    message_id=message_id,
+                                    end=UiPathConversationMessageEndEvent(),
+                                    content_part=UiPathConversationContentPartEvent(
+                                        content_part_id=content_part_id,
+                                        end=UiPathConversationContentPartEndEvent(),
+                                    ),
+                                ),
+                            )
+
+                        assert isinstance(next_node, CallToolsNode)
                         yield UiPathRuntimeStateEvent(
-                            payload=self._model_response_payload(node),
+                            payload=self._model_response_payload(next_node),
                             node_name=agent_name,
                             phase=UiPathRuntimeStatePhase.COMPLETED,
                         )
+                        node = next_node
 
                     elif Agent.is_call_tools_node(node):
                         tool_calls = node.model_response.tool_calls if has_tools else []
@@ -115,14 +176,15 @@ class UiPathPydanticAIRuntime:
                                 phase=UiPathRuntimeStatePhase.STARTED,
                             )
 
-                        node = await agent_run.next(node)
+                        next_node = await agent_run.next(node)
 
-                        if tool_calls:
+                        if tool_calls and isinstance(next_node, ModelRequestNode):
                             yield UiPathRuntimeStateEvent(
-                                payload=self._tool_results_payload(node),
+                                payload=self._tool_results_payload(next_node),
                                 node_name=tools_node_name,
                                 phase=UiPathRuntimeStatePhase.COMPLETED,
                             )
+                        node = next_node
 
                     else:
                         node = await agent_run.next(node)
@@ -136,7 +198,15 @@ class UiPathPydanticAIRuntime:
             raise self._create_runtime_error(e) from e
 
     @staticmethod
-    def _model_request_payload(node: Any) -> dict[str, Any]:
+    def _get_timestamp() -> str:
+        """Get current UTC timestamp in ISO 8601 format."""
+        now = datetime.now(timezone.utc)
+        return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+    @staticmethod
+    def _model_request_payload(
+        node: ModelRequestNode[Any, Any],
+    ) -> dict[str, Any]:
         """Build payload for a ModelRequestNode STARTED event."""
         payload: dict[str, Any] = {}
         try:
@@ -153,7 +223,9 @@ class UiPathPydanticAIRuntime:
         return payload
 
     @staticmethod
-    def _model_response_payload(next_node: Any) -> dict[str, Any]:
+    def _model_response_payload(
+        next_node: CallToolsNode[Any, Any],
+    ) -> dict[str, Any]:
         """Build payload for a ModelRequestNode COMPLETED event.
 
         After agent_run.next() the returned node is the CallToolsNode
@@ -161,7 +233,7 @@ class UiPathPydanticAIRuntime:
         """
         payload: dict[str, Any] = {}
         try:
-            response = next_node.model_response
+            response: ModelResponse = next_node.model_response
             if response.model_name:
                 payload["model_name"] = response.model_name
             usage = response.usage
@@ -175,14 +247,14 @@ class UiPathPydanticAIRuntime:
         return payload
 
     @staticmethod
-    def _tool_results_payload(next_node: Any) -> dict[str, Any]:
+    def _tool_results_payload(
+        next_node: ModelRequestNode[Any, Any],
+    ) -> dict[str, Any]:
         """Build payload for a CallToolsNode COMPLETED event.
 
         After agent_run.next() the returned node is a ModelRequestNode
         whose request.parts contain ToolReturnPart objects with results.
         """
-        from pydantic_ai.messages import ToolReturnPart
-
         payload: dict[str, Any] = {}
         try:
             parts = next_node.request.parts if next_node.request else []

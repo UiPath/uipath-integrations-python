@@ -405,13 +405,11 @@ def test_deps_only_agent_has_uipath_messages_output():
 
 
 def test_message_schema_has_optional_fields():
-    """Test that the message schema includes optional fields like toolCalls and interrupts."""
+    """Test that the message schema includes optional fields like mimeType."""
     schema = get_entrypoints_schema(agent_plain)
     item = schema["input"]["properties"]["messages"]["items"]
-    assert "toolCalls" in item["properties"]
-    assert "interrupts" in item["properties"]
-    assert "mimeType" in item["properties"]["contentParts"]["items"]["properties"]
-    assert "citations" in item["properties"]["contentParts"]["items"]["properties"]
+    cp_item = item["properties"]["contentParts"]["items"]
+    assert "mimeType" in cp_item["properties"]
 
 
 def test_message_schema_structure():
@@ -424,12 +422,6 @@ def test_message_schema_structure():
     assert messages_prop["description"] == "UiPath conversation messages"
 
     item = messages_prop["items"]
-    # toolCalls and interrupts should be arrays of objects
-    assert item["properties"]["toolCalls"] == {
-        "type": "array",
-        "items": {"type": "object"},
-    }
-    assert item["properties"]["interrupts"] == {
-        "type": "array",
-        "items": {"type": "object"},
-    }
+    assert item["type"] == "object"
+    assert "role" in item["required"]
+    assert "contentParts" in item["required"]

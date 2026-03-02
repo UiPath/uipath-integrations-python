@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from uipath.core.chat.message import UiPathConversationMessageEvent
+from uipath.runtime.events import UiPathRuntimeMessageEvent
 
 from uipath_pydantic_ai.runtime.errors import (
     UiPathPydanticAIErrorCode,
@@ -582,3 +584,188 @@ async def test_e2e_stream_event_payloads():
         result = event.payload["tool_results"][0]
         assert "tool_name" in result
         assert "content" in result
+
+
+# ============= TOKEN STREAMING TESTS =============
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_message_events_with_message_id():
+    """Streaming must emit UiPathConversationMessageEvent payloads with a message_id."""
+    from pydantic_ai.models.test import TestModel
+
+    agent = Agent(TestModel(custom_output_text="Hi there"), name="msg_agent")
+    runtime = UiPathPydanticAIRuntime(agent=agent, runtime_id="test", entrypoint="test")
+
+    msg_events: list[UiPathConversationMessageEvent] = []
+    async for event in runtime.stream(input=_uipath_input("Hello")):
+        if isinstance(event, UiPathRuntimeMessageEvent):
+            payload = event.payload
+            assert isinstance(payload, UiPathConversationMessageEvent)
+            msg_events.append(payload)
+
+    assert len(msg_events) >= 3  # START + at least one CHUNK + END
+    # All events share the same message_id
+    ids = {e.message_id for e in msg_events}
+    assert len(ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_message_lifecycle_start_chunks_end():
+    """Streaming follows START -> CHUNK(s) -> END lifecycle."""
+    from pydantic_ai.models.test import TestModel
+
+    agent = Agent(TestModel(custom_output_text="Hello world"), name="lc_agent")
+    runtime = UiPathPydanticAIRuntime(agent=agent, runtime_id="test", entrypoint="test")
+
+    msg_events: list[UiPathConversationMessageEvent] = []
+    async for event in runtime.stream(input=_uipath_input("Say hello")):
+        if isinstance(event, UiPathRuntimeMessageEvent):
+            msg_events.append(event.payload)
+
+    # First event: START (has start + content_part.start)
+    first = msg_events[0]
+    assert first.start is not None
+    assert first.start.role == "assistant"
+    assert first.start.timestamp is not None
+    assert first.content_part is not None
+    assert first.content_part.start is not None
+    assert first.content_part.start.mime_type == "text/plain"
+
+    # Middle events: CHUNK (has content_part.chunk)
+    chunks = msg_events[1:-1]
+    assert len(chunks) >= 1
+    for chunk_event in chunks:
+        assert chunk_event.content_part is not None
+        assert chunk_event.content_part.chunk is not None
+        assert isinstance(chunk_event.content_part.chunk.data, str)
+        assert len(chunk_event.content_part.chunk.data) > 0
+
+    # Last event: END (has end + content_part.end)
+    last = msg_events[-1]
+    assert last.end is not None
+    assert last.content_part is not None
+    assert last.content_part.end is not None
+
+
+@pytest.mark.asyncio
+async def test_stream_token_chunks_reassemble_to_full_text():
+    """Concatenating all chunk data must produce the full response text."""
+    from pydantic_ai.models.test import TestModel
+
+    expected_text = "The quick brown fox jumps over the lazy dog"
+    agent = Agent(TestModel(custom_output_text=expected_text), name="concat_agent")
+    runtime = UiPathPydanticAIRuntime(agent=agent, runtime_id="test", entrypoint="test")
+
+    chunk_texts: list[str] = []
+    async for event in runtime.stream(input=_uipath_input("Tell me something")):
+        if isinstance(event, UiPathRuntimeMessageEvent):
+            payload = event.payload
+            if payload.content_part and payload.content_part.chunk:
+                chunk_texts.append(payload.content_part.chunk.data)
+
+    reassembled = "".join(chunk_texts)
+    assert reassembled == expected_text
+
+
+@pytest.mark.asyncio
+async def test_stream_content_part_id_consistent():
+    """All content_part events in a message must share the same content_part_id."""
+    from pydantic_ai.models.test import TestModel
+
+    agent = Agent(TestModel(custom_output_text="Consistent IDs"), name="cpid_agent")
+    runtime = UiPathPydanticAIRuntime(agent=agent, runtime_id="test", entrypoint="test")
+
+    content_part_ids: set[str] = set()
+    async for event in runtime.stream(input=_uipath_input("Check IDs")):
+        if isinstance(event, UiPathRuntimeMessageEvent):
+            payload = event.payload
+            if payload.content_part:
+                content_part_ids.add(payload.content_part.content_part_id)
+
+    assert len(content_part_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_with_tools_emits_message_events():
+    """Streaming an agent with tools must emit message events for the final text response."""
+    from pydantic_ai.models.test import TestModel
+
+    def my_tool(ctx, query: str) -> str:
+        """Search tool.
+
+        Args:
+            ctx: The agent context.
+            query: The search query.
+
+        Returns:
+            Search results.
+        """
+        return f"Result for {query}"
+
+    agent = Agent(TestModel(), name="tool_msg_agent", tools=[my_tool])
+    runtime = UiPathPydanticAIRuntime(agent=agent, runtime_id="test", entrypoint="test")
+
+    msg_events: list[UiPathConversationMessageEvent] = []
+    async for event in runtime.stream(input=_uipath_input("Search for cats")):
+        if isinstance(event, UiPathRuntimeMessageEvent):
+            msg_events.append(event.payload)
+
+    # Should have at least one message lifecycle (final response after tool call)
+    assert len(msg_events) >= 3
+
+    # Verify START/END presence
+    starts = [e for e in msg_events if e.start is not None]
+    ends = [e for e in msg_events if e.end is not None]
+    assert len(starts) >= 1
+    assert len(ends) >= 1
+
+    # Text chunks should exist
+    chunks = [e for e in msg_events if e.content_part and e.content_part.chunk]
+    assert len(chunks) >= 1
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_only_turn_skips_message_events():
+    """Model turns that produce only tool calls (no text) should not emit message events."""
+    from pydantic_ai.models.test import TestModel
+    from uipath.runtime.events import (
+        UiPathRuntimeStateEvent,
+        UiPathRuntimeStatePhase,
+    )
+
+    def my_tool(ctx, query: str) -> str:
+        """A tool.
+
+        Args:
+            ctx: The agent context.
+            query: The query.
+
+        Returns:
+            Results.
+        """
+        return "result"
+
+    # TestModel with tools: first turn calls tool (no text), second turn returns text
+    agent = Agent(TestModel(), name="skip_agent", tools=[my_tool])
+    runtime = UiPathPydanticAIRuntime(agent=agent, runtime_id="test", entrypoint="test")
+
+    msg_events: list[UiPathConversationMessageEvent] = []
+    state_events: list[UiPathRuntimeStateEvent] = []
+    async for event in runtime.stream(input=_uipath_input("Do something")):
+        if isinstance(event, UiPathRuntimeMessageEvent):
+            msg_events.append(event.payload)
+        elif isinstance(event, UiPathRuntimeStateEvent):
+            state_events.append(event)
+
+    # Should have multiple model turns via state events (tool turn + final turn)
+    agent_started = [
+        e
+        for e in state_events
+        if e.node_name == "skip_agent" and e.phase == UiPathRuntimeStatePhase.STARTED
+    ]
+    assert len(agent_started) >= 2  # at least 2 model request turns
+
+    # Message events only come from the text-producing turn(s)
+    message_ids = {e.message_id for e in msg_events}
+    assert len(message_ids) == 1  # only the final text response

@@ -10,6 +10,7 @@ from .context import get_agent_context_type, parse_input_to_context
 from .factory import UiPathOpenAIAgentRuntimeFactory
 from .runtime import UiPathOpenAIAgentRuntime
 from .schema import get_agent_schema, get_entrypoints_schema
+from .storage import SqliteResumableStorage
 
 
 def register_runtime_factory() -> None:
@@ -33,6 +34,7 @@ __all__ = [
     "get_agent_schema",
     "UiPathOpenAIAgentRuntimeFactory",
     "UiPathOpenAIAgentRuntime",
+    "SqliteResumableStorage",
     "get_agent_context_type",
     "parse_input_to_context",
 ]

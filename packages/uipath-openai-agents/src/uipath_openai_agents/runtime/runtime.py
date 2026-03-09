@@ -4,7 +4,7 @@ import json
 from typing import Any, AsyncGenerator
 from uuid import uuid4
 
-from agents import Agent, Runner
+from agents import Agent, Runner, SQLiteSession
 from pydantic import BaseModel
 from uipath.core.serialization import serialize_json
 from uipath.runtime import (
@@ -36,6 +36,7 @@ class UiPathOpenAIAgentRuntime:
         agent: Agent,
         runtime_id: str | None = None,
         entrypoint: str | None = None,
+        session: SQLiteSession | None = None,
     ):
         """
         Initialize the runtime.
@@ -44,10 +45,12 @@ class UiPathOpenAIAgentRuntime:
             agent: The OpenAI Agent to execute
             runtime_id: Unique identifier for this runtime instance
             entrypoint: Optional entrypoint name (for schema generation)
+            session: Optional OpenAI Agents SDK session for persistent memory
         """
         self.agent: Agent = agent
         self.runtime_id: str = runtime_id or "default"
         self.entrypoint: str | None = entrypoint
+        self._session = session
 
         # Detect context type from agent's generic parameter
         self._context_type: type[BaseModel] | None = get_agent_context_type(agent)
@@ -142,6 +145,7 @@ class UiPathOpenAIAgentRuntime:
                 starting_agent=self.agent,
                 input=agent_input,
                 context=context,
+                session=self._session,
             )
             yield self._create_success_result(result.final_output)
 
@@ -170,6 +174,7 @@ class UiPathOpenAIAgentRuntime:
             starting_agent=self.agent,
             input=agent_input,
             context=context,
+            session=self._session,
         )
 
         # Stream events from the agent
@@ -354,4 +359,5 @@ class UiPathOpenAIAgentRuntime:
 
     async def dispose(self) -> None:
         """Cleanup runtime resources."""
-        pass
+        if self._session is not None:
+            self._session.close()

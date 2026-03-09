@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 from typing import Generator
 
@@ -13,6 +14,11 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def temp_dir() -> Generator[str, None, None]:
-    """Provide a temporary directory for test files."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        yield tmp_dir
+    """Provide a temporary directory for test files.
+
+    Cleanup ignores errors to avoid PermissionError on Windows when
+    SQLiteSession worker-thread connections still hold the state.db file open.
+    """
+    tmp_dir = tempfile.mkdtemp()
+    yield tmp_dir
+    shutil.rmtree(tmp_dir, ignore_errors=True)

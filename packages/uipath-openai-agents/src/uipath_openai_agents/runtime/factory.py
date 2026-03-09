@@ -262,6 +262,7 @@ class UiPathOpenAIAgentRuntimeFactory:
             runtime_id=runtime_id,
             entrypoint=entrypoint,
             session=session,
+            storage=storage,
         )
 
         return UiPathResumableRuntime(

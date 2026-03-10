@@ -1,0 +1,18 @@
+flowchart TB
+  __start__(__start__)
+  pipeline(pipeline)
+  coordinator(coordinator)
+  research_agent(research_agent)
+  code_agent(code_agent)
+  formatter(formatter)
+  __end__(__end__)
+  coordinator --> research_agent
+  research_agent --> coordinator
+  coordinator --> code_agent
+  code_agent --> coordinator
+  pipeline --> coordinator
+  coordinator --> pipeline
+  pipeline --> formatter
+  formatter --> pipeline
+  __start__ --> |input|pipeline
+  pipeline --> |output|__end__

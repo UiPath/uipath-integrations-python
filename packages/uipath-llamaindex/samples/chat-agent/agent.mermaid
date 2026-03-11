@@ -1,0 +1,19 @@
+flowchart TB
+  __start__(__start__)
+  aggregate_tool_results(aggregate_tool_results)
+  call_tool(call_tool)
+  init_run(init_run)
+  parse_agent_output(parse_agent_output)
+  run_agent_step(run_agent_step)
+  setup_agent(setup_agent)
+  __end__(__end__)
+  aggregate_tool_results --> |AgentInput|setup_agent
+  aggregate_tool_results --> |StopEvent|__end__
+  call_tool --> |ToolCallResult|aggregate_tool_results
+  __start__ --> |AgentWorkflowStartEvent|init_run
+  init_run --> |AgentInput|setup_agent
+  parse_agent_output --> |StopEvent|__end__
+  parse_agent_output --> |AgentInput|setup_agent
+  parse_agent_output --> |ToolCall|call_tool
+  run_agent_step --> |AgentOutput|parse_agent_output
+  setup_agent --> |AgentSetup|run_agent_step

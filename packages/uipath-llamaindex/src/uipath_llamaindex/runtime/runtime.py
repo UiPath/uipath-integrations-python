@@ -2,11 +2,11 @@
 
 import asyncio
 import json
+import logging
 from typing import Any, AsyncGenerator, cast
 from uuid import uuid4
 
 from llama_index.core.agent.workflow.workflow_events import (
-    AgentInput,
     AgentOutput,
     AgentStream,
     ToolCall,
@@ -43,12 +43,15 @@ from uipath_llamaindex.runtime.breakpoints import (
     DebuggableWorkflow,
     inject_breakpoints,
 )
+from uipath_llamaindex.runtime.chat import UiPathChatMessagesMapper
 from uipath_llamaindex.runtime.errors import (
     UiPathLlamaIndexErrorCode,
     UiPathLlamaIndexRuntimeError,
 )
 from uipath_llamaindex.runtime.schema import get_entrypoints_schema, get_workflow_schema
 from uipath_llamaindex.runtime.storage import SqliteResumableStorage
+
+logger = logging.getLogger(__name__)
 
 
 class UiPathLlamaIndexRuntime:
@@ -136,13 +139,10 @@ class UiPathLlamaIndexRuntime:
         """
         Core workflow execution logic used by both execute() and stream().
         """
-        workflow_input = input or {}
+        workflow_input = UiPathChatMessagesMapper.map_input(input or {})
         is_resuming = bool(options and options.resume)
 
-        if is_resuming:
-            self._context = await self._load_context()
-        else:
-            self._context = Context(self.workflow)
+        self._context = await self._load_context()
 
         # Make the Context discoverable from inside steps
         if self.debug_mode and self._context is not None:
@@ -168,28 +168,30 @@ class UiPathLlamaIndexRuntime:
 
         event_stream = handler.stream_events(expose_internal=True)
         suspended_event: InputRequiredEvent | None = None
+        chat = UiPathChatMessagesMapper(
+            runtime_id=self.runtime_id, storage=self.storage
+        )
 
         is_resumed: bool = False
         async for event in event_stream:
             node_name = self._get_node_name(event)
-            if stream_events:
-                if isinstance(
-                    event,
-                    (AgentOutput, AgentInput, AgentStream, ToolCall, ToolCallResult),
-                ):
-                    message_event = UiPathRuntimeMessageEvent(
-                        payload=json.loads(serialize_json(event)),
-                        node_name=node_name,
-                        execution_id=self.runtime_id,
-                    )
-                    yield message_event
-                elif not isinstance(event, BreakpointEvent):
-                    state_event = UiPathRuntimeStateEvent(
-                        payload=json.loads(serialize_json(event)),
-                        node_name=node_name,
-                        execution_id=self.runtime_id,
-                    )
-                    yield state_event
+            if isinstance(event, (AgentOutput, AgentStream, ToolCall, ToolCallResult)):
+                try:
+                    mapped_events = await chat.map_event(event)
+                except Exception as e:
+                    logger.warning("Error mapping agent event: %s", e)
+                    mapped_events = None
+                if mapped_events:
+                    for mapped_event in mapped_events:
+                        if stream_events:
+                            yield UiPathRuntimeMessageEvent(payload=mapped_event)
+            elif stream_events and not isinstance(event, BreakpointEvent):
+                state_event = UiPathRuntimeStateEvent(
+                    payload=json.loads(serialize_json(event)),
+                    node_name=node_name,
+                    execution_id=self.runtime_id,
+                )
+                yield state_event
 
             if isinstance(event, BreakpointEvent):
                 # Check if we should actually pause at this breakpoint
@@ -224,7 +226,9 @@ class UiPathLlamaIndexRuntime:
             else:
                 yield self._create_suspended_result(suspended_event)
         else:
-            yield self._create_success_result(await handler)
+            final_result = await handler
+            await self._save_context()
+            yield self._create_success_result(final_result)
 
     async def get_schema(self) -> UiPathRuntimeSchema:
         """Get schema for this LlamaIndex runtime."""

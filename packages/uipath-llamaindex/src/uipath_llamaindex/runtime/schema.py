@@ -2,13 +2,12 @@
 
 from typing import Any
 
-from llama_index.core.agent.workflow import BaseWorkflowAgent
+from llama_index.core.agent.workflow import AgentWorkflow, BaseWorkflowAgent
 from llama_index.core.agent.workflow.workflow_events import (
     AgentOutput,
     ToolCall,
     ToolCallResult,
 )
-from pydantic import BaseModel
 from uipath.runtime.schema import (
     UiPathRuntimeEdge,
     UiPathRuntimeGraph,
@@ -25,9 +24,70 @@ from workflows.events import (
 )
 
 
+def _conversation_message_item_schema() -> dict[str, Any]:
+    """Minimal message schema: only role and contentParts required, contentParts items only need data.inline."""
+    return {
+        "type": "object",
+        "properties": {
+            "role": {"type": "string"},
+            "contentParts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "mimeType": {"type": "string"},
+                        "data": {
+                            "type": "object",
+                            "properties": {
+                                "inline": {},
+                            },
+                            "required": ["inline"],
+                        },
+                        "citations": {"type": "array", "items": {"type": "object"}},
+                    },
+                    "required": ["data"],
+                },
+            },
+            "toolCalls": {"type": "array", "items": {"type": "object"}},
+            "interrupts": {"type": "array", "items": {"type": "object"}},
+        },
+        "required": ["role", "contentParts"],
+    }
+
+
+def _default_messages_schema() -> dict[str, Any]:
+    """Default messages schema using minimal UiPath conversation message format."""
+    return {
+        "type": "object",
+        "properties": {
+            "messages": {
+                "type": "array",
+                "items": _conversation_message_item_schema(),
+                "title": "Messages",
+                "description": "UiPath conversation messages",
+            }
+        },
+        "required": ["messages"],
+    }
+
+
+def _default_input_schema() -> dict[str, Any]:
+    """Default input schema using UiPath conversation message format."""
+    return _default_messages_schema()
+
+
+def _default_output_schema() -> dict[str, Any]:
+    """Default output schema using UiPath conversation message format."""
+    return _default_messages_schema()
+
+
 def get_entrypoints_schema(workflow: Workflow) -> dict[str, Any]:
     """
     Extract input/output schema from a LlamaIndex workflow.
+
+    For chat agents (BaseWorkflowAgent), uses the default UiPath messages schema
+    for both input and output (matching the google-adk integration convention).
+    For regular workflows, extracts schema from StartEvent/StopEvent.
 
     Args:
         workflow: A LlamaIndex Workflow instance
@@ -36,9 +96,13 @@ def get_entrypoints_schema(workflow: Workflow) -> dict[str, Any]:
         Dictionary with input and output schemas
     """
     schema = {
-        "input": {"type": "object", "properties": {}, "required": []},
-        "output": {"type": "object", "properties": {}, "required": []},
+        "input": _default_input_schema(),
+        "output": _default_output_schema(),
     }
+
+    # Chat agents use the messages schema for input/output — do not override from events
+    if isinstance(workflow, (BaseWorkflowAgent, AgentWorkflow)):
+        return schema
 
     # Find the actual StartEvent and StopEvent classes used in this workflow
     start_event_class = workflow._start_event_class
@@ -46,46 +110,18 @@ def get_entrypoints_schema(workflow: Workflow) -> dict[str, Any]:
 
     # Generate input schema from StartEvent
     try:
-        if isinstance(workflow, BaseWorkflowAgent):
-            # For workflow agents, define a simple schema with just user_msg
-            schema["input"] = {
-                "type": "object",
-                "properties": {
-                    "user_msg": {
-                        "type": "string",
-                        "title": "User Message",
-                        "description": "The user's question or request",
-                    }
-                },
-                "required": ["user_msg"],
-            }
-        else:
-            input_schema = start_event_class.model_json_schema()
-            # Resolve references and handle nullable types
-            unpacked_input, _ = transform_references(input_schema)
-            schema["input"]["properties"] = transform_nullable_types(
-                unpacked_input.get("properties", {})
-            )
-            schema["input"]["required"] = unpacked_input.get("required", [])
+        input_schema = start_event_class.model_json_schema()
+        # Resolve references and handle nullable types
+        unpacked_input, _ = transform_references(input_schema)
+        schema["input"]["properties"] = transform_nullable_types(
+            unpacked_input.get("properties", {})
+        )
+        schema["input"]["required"] = unpacked_input.get("required", [])
     except (AttributeError, Exception):
         pass
 
-    # Handle output schema - check if it's a workflow agent with output_cls first
-    if isinstance(workflow, BaseWorkflowAgent):
-        output_cls: type[BaseModel] | None = getattr(workflow, "output_cls", None)
-        if output_cls is not None:
-            try:
-                output_schema = output_cls.model_json_schema()
-                # Resolve references and handle nullable types
-                unpacked_output, _ = transform_references(output_schema)
-                schema["output"]["properties"] = transform_nullable_types(
-                    unpacked_output.get("properties", {})
-                )
-                schema["output"]["required"] = unpacked_output.get("required", [])
-            except (AttributeError, Exception):
-                pass
     # Check if it's the base StopEvent or a custom subclass
-    elif stop_event_class is StopEvent:
+    if stop_event_class is StopEvent:
         # base StopEvent
         schema["output"] = {
             "type": "object",

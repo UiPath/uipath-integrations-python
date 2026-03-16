@@ -6,6 +6,14 @@ from uipath._cli.cli_init import init
 
 
 class TestInit:
+    def _generate_pyproject(self):
+        with open("pyproject.toml", "w") as f:
+            f.write(
+                '[project]\nname = "test-project"\nversion = "0.1.0"\n'
+                'description = "Test"\nauthors = [{name = "Test"}]\n'
+                'requires-python = ">=3.11"\n'
+            )
+
     def test_init_basic_config_generation(
         self,
         runner: CliRunner,
@@ -21,6 +29,8 @@ class TestInit:
 
             with open("llama_index.json", "w") as f:
                 f.write(llama_config)
+
+            self._generate_pyproject()
 
             result = runner.invoke(init)
             assert result.exit_code == 0
@@ -74,6 +84,7 @@ class TestInit:
 
             with open("llama_index.json", "w") as f:
                 f.write(llama_config)
+            self._generate_pyproject()
 
             result = runner.invoke(init)
             assert result.exit_code == 0

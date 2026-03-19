@@ -8,6 +8,7 @@ from openai import AsyncOpenAI, OpenAI
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from uipath._utils._ssl_context import get_httpx_client_kwargs
+from uipath.platform.common import apply_debug_licensing_override
 from uipath.utils import EndpointManager
 
 from .supported_models import OpenAIModels
@@ -187,7 +188,9 @@ class UiPathChatOpenAI:
 
         # Add optional headers
         if self._agenthub_config:
-            headers["X-UiPath-AgentHub-Config"] = self._agenthub_config
+            headers["X-UiPath-AgentHub-Config"] = apply_debug_licensing_override(
+                self._agenthub_config
+            )
         if self._byo_connection_id:
             headers["X-UiPath-LlmGateway-ByoIsConnectionId"] = self._byo_connection_id
         if job_key := os.getenv("UIPATH_JOB_KEY"):

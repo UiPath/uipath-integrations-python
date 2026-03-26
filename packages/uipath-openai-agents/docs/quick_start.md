@@ -11,11 +11,10 @@ Before proceeding, ensure you have the following installed:
 -   Python 3.11 or higher
 -   `pip` or `uv` package manager
 -   A UiPath Automation Cloud account with appropriate permissions
--   An OpenAI API key
 
 /// info
- **OpenAI** - Generate an OpenAI API key [here](https://platform.openai.com).
-   ///
+The generated boilerplate uses `UiPathChatOpenAI`, which routes all LLM requests through the **UiPath LLM Gateway**. No OpenAI API key is required — authentication is handled via `uipath auth`. If you choose to use the OpenAI client directly (without `UiPathChatOpenAI`), you will need to configure an `OPENAI_API_KEY` environment variable.
+///
 
 ## Creating a New Project
 
@@ -104,7 +103,6 @@ Generate your first UiPath OpenAI agent:
 ✓  Created 'main.py' file.
 ✓  Created 'openai_agents.json' file.
 ✓  Created 'pyproject.toml' file.
-🔧  Please ensure to define OPENAI_API_KEY in your .env file.
 💡  Initialize project: uipath init
 💡  Run agent: uipath run agent '{"messages": "Hello"}'
 ```
@@ -137,18 +135,6 @@ This command creates the following files:
 | `.env`           | Environment variables and secrets (this file will not be packed & published).                                                     |
 | `uipath.json`    | Input/output JSON schemas and bindings.                                                                                           |
 | `agent.mermaid`  | Graph visual representation.                                                                                                      |
-
-## Set Up Environment Variables
-
-Before running the agent, configure `OPENAI_API_KEY` in the `.env` file:
-
-//// tab | Open AI
-
-```
-OPENAI_API_KEY=sk-proj-......
-```
-
-////
 
 ## Authenticate With UiPath
 

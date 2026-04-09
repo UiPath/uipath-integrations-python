@@ -253,7 +253,7 @@ class UiPathLlamaIndexRuntimeFactory:
             runtime_id=runtime_id,
             entrypoint=entrypoint,
             storage=storage,
-            debug_mode=self.context.command == "debug",
+            debug_mode=self.context.command in ("debug", "dev"),
         )
 
         trigger_manager = UiPathResumeTriggerHandler()

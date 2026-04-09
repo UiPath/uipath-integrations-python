@@ -5,7 +5,7 @@ Breakpoint-related events for workflow execution.
 from __future__ import annotations
 
 import functools
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 from workflows import Context, Workflow
 from workflows.decorators import StepFunction
@@ -15,10 +15,6 @@ from workflows.events import (
 )
 
 from uipath_llamaindex.runtime.schema import get_step_config
-
-
-class DebuggableWorkflow(Protocol):
-    context: Context | None = None
 
 
 class BreakpointEvent(InputRequiredEvent):
@@ -74,25 +70,28 @@ def make_wrapper(
 ) -> StepFunction[..., Any]:
     """
     Return a wrapped step function that pauses on breakpoints.
+
+    The wrapper creates an InternalContext via ``Context._create_internal``
+    to call ``wait_for_event``. This works because the wrapper executes
+    inside the step worker where the framework has already set the
+    ``StepWorkerStateContextVar``.
     """
 
     @functools.wraps(original)
     async def wrapper(self, *args: Any, **kwargs: Any) -> Any:
-        # Grab ctx from the workflow, as wired by UiPathLlamaIndexRuntime
-        ctx: Context | None = getattr(self, "context", None)
+        ctx = Context._create_internal(workflow=self)
 
-        if isinstance(ctx, Context):
-            bp_event = BreakpointEvent(
-                breakpoint_node=step_name,
-                prefix=f"Breakpoint at {step_name}",
-            )
-            # Suspend until debugger resumes
-            await ctx.wait_for_event(
-                BreakpointResumeEvent,
-                waiter_event=bp_event,
-                waiter_id=f"bp_{step_name}",
-                timeout=None,
-            )
+        bp_event = BreakpointEvent(
+            breakpoint_node=step_name,
+            prefix=f"Breakpoint at {step_name}",
+        )
+        # Suspend until debugger resumes
+        await ctx.wait_for_event(
+            BreakpointResumeEvent,
+            waiter_event=bp_event,
+            waiter_id=f"bp_{step_name}",
+            timeout=None,
+        )
 
         # Continue original step logic
         return await original(self, *args, **kwargs)

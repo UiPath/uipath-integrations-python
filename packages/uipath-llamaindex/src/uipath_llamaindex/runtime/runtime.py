@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, cast
+from typing import Any, AsyncGenerator
 from uuid import uuid4
 
 from llama_index.core.agent.workflow.workflow_events import (
@@ -40,7 +40,6 @@ from workflows.handler import WorkflowHandler
 from uipath_llamaindex.runtime.breakpoints import (
     BreakpointEvent,
     BreakpointResumeEvent,
-    DebuggableWorkflow,
     inject_breakpoints,
 )
 from uipath_llamaindex.runtime.chat import UiPathChatMessagesMapper
@@ -143,11 +142,6 @@ class UiPathLlamaIndexRuntime:
         is_resuming = bool(options and options.resume)
 
         self._context = await self._load_context()
-
-        # Make the Context discoverable from inside steps
-        if self.debug_mode and self._context is not None:
-            debug_workflow = cast(DebuggableWorkflow, self.workflow)
-            debug_workflow.context = self._context
 
         if is_resuming:
             handler: WorkflowHandler = self.workflow.run(ctx=self._context)

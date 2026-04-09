@@ -1,0 +1,107 @@
+{
+    "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+    "$id": "entry-points.json",
+    "entryPoints": [
+        {
+            "filePath": "agent",
+            "uniqueId": "ce52179f-ff2f-4c5f-b4ae-3803ccf9c516",
+            "type": "agent",
+            "input": {
+                "type": "object",
+                "properties": {
+                    "messages": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "object"
+                                }
+                            }
+                        ],
+                        "title": "Messages",
+                        "description": "User messages to send to the agent"
+                    }
+                },
+                "required": [
+                    "messages"
+                ]
+            },
+            "output": {
+                "type": "object",
+                "properties": {
+                    "response": {
+                        "title": "Response",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "response"
+                ],
+                "title": "Output"
+            },
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "__start__",
+                        "name": "__start__",
+                        "type": "__start__",
+                        "subgraph": null,
+                        "metadata": null
+                    },
+                    {
+                        "id": "assistant",
+                        "name": "assistant",
+                        "type": "node",
+                        "subgraph": null,
+                        "metadata": null
+                    },
+                    {
+                        "id": "assistant_tools",
+                        "name": "tools",
+                        "type": "tool",
+                        "subgraph": null,
+                        "metadata": {
+                            "tool_names": [
+                                "get_current_time",
+                                "get_weather"
+                            ],
+                            "tool_count": 2
+                        }
+                    },
+                    {
+                        "id": "__end__",
+                        "name": "__end__",
+                        "type": "__end__",
+                        "subgraph": null,
+                        "metadata": null
+                    }
+                ],
+                "edges": [
+                    {
+                        "source": "assistant",
+                        "target": "assistant_tools",
+                        "label": null
+                    },
+                    {
+                        "source": "assistant_tools",
+                        "target": "assistant",
+                        "label": null
+                    },
+                    {
+                        "source": "__start__",
+                        "target": "assistant",
+                        "label": "input"
+                    },
+                    {
+                        "source": "assistant",
+                        "target": "__end__",
+                        "label": "output"
+                    }
+                ]
+            }
+        }
+    ]
+}

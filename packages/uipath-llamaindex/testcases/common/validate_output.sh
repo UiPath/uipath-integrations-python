@@ -27,7 +27,7 @@ validate_output() {
     debug_print_uipath_output
 
     echo "Validating output..."
-    python src/assert.py || { echo "Validation failed!"; exit 1; }
+    PYTHONPATH="../common:$PYTHONPATH" python src/assert.py || { echo "Validation failed!"; exit 1; }
 
     echo "Testcase completed successfully."
 }

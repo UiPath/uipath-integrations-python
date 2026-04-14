@@ -52,6 +52,7 @@ from llama_index.core.llms.callbacks import (  # noqa: E402
     llm_chat_callback,
     llm_completion_callback,
 )
+from llama_index.core.tools import ToolSelection  # noqa: E402
 from llama_index.llms.google_genai import GoogleGenAI  # noqa: E402
 
 
@@ -410,3 +411,13 @@ class UiPathVertex(GoogleGenAI):
             )
 
         return gen()
+
+    def get_tool_calls_from_response(
+        self,
+        response: ChatResponse,
+        error_on_no_tool_call: bool = False,
+        **kwargs: Any,
+    ) -> list[ToolSelection]:
+        return super().get_tool_calls_from_response(
+            response, error_on_no_tool_call=error_on_no_tool_call, **kwargs
+        )

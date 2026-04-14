@@ -1,0 +1,13 @@
+flowchart TB
+  __start__(__start__)
+  postprocess(postprocess)
+  prepare(prepare)
+  react_agent(react_agent)
+  tool_executor(tool_executor)
+  __end__(__end__)
+  postprocess --> |ResponseEvent|__end__
+  __start__ --> |QueryEvent|prepare
+  prepare --> |LLMInputEvent|react_agent
+  react_agent --> |ToolCallEvent|tool_executor
+  react_agent --> |AgentOutputEvent|postprocess
+  tool_executor --> |LLMInputEvent|react_agent

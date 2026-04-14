@@ -1,0 +1,47 @@
+{
+  "description": "Template agent trace assertions - check key spans exist",
+  "required_spans": [
+    {
+      "name": "TemplateAgent.run",
+      "attributes": {
+        "openinference.span.kind": "CHAIN"
+      }
+    },
+    {
+      "name": "TemplateAgent.prepare",
+      "attributes": {
+        "openinference.span.kind": "CHAIN"
+      }
+    },
+    {
+      "name": "TemplateAgent.react_agent",
+      "attributes": {
+        "openinference.span.kind": "CHAIN"
+      }
+    },
+    {
+      "name": "TemplateAgent.tool_executor",
+      "attributes": {
+        "openinference.span.kind": "CHAIN"
+      }
+    },
+    {
+      "name": "TemplateAgent.postprocess",
+      "attributes": {
+        "openinference.span.kind": "CHAIN"
+      }
+    },
+    {
+      "name": "FunctionTool.call",
+      "attributes": {
+        "openinference.span.kind": "TOOL"
+      }
+    },
+    {
+      "name": ["UiPathChatBedrockConverse.achat", "UiPathOpenAI.achat", "UiPathVertex.achat"],
+      "attributes": {
+        "openinference.span.kind": "LLM"
+      }
+    }
+  ]
+}

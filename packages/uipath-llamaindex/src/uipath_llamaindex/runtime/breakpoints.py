@@ -71,15 +71,13 @@ def make_wrapper(
     """
     Return a wrapped step function that pauses on breakpoints.
 
-    The wrapper creates an InternalContext via ``Context._create_internal``
-    to call ``wait_for_event``. This works because the wrapper executes
-    inside the step worker where the framework has already set the
-    ``StepWorkerStateContextVar``.
+    Uses ``Context.get_step_context()`` to retrieve the current step's
+    context without requiring the step to declare a ``ctx`` parameter.
     """
 
     @functools.wraps(original)
     async def wrapper(self, *args: Any, **kwargs: Any) -> Any:
-        ctx = Context._create_internal(workflow=self)
+        ctx = Context.get_step_context()
 
         bp_event = BreakpointEvent(
             breakpoint_node=step_name,

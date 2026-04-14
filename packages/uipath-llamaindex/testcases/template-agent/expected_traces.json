@@ -1,0 +1,11 @@
+{
+  "description": "Template agent trace assertions - check key spans exist",
+  "required_spans": [
+    {
+      "name": "Workflow.run",
+      "attributes": {
+        "openinference.span.kind": "CHAIN"
+      }
+    }
+  ]
+}

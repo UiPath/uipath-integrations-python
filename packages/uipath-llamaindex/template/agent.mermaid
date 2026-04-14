@@ -1,0 +1,12 @@
+flowchart TB
+  __start__(__start__)
+  prepare(prepare)
+  react_agent(react_agent)
+  tool_executor(tool_executor)
+  __end__(__end__)
+  __start__ --> |QueryEvent|prepare
+  prepare --> |PreparedEvent|react_agent
+  react_agent --> |ToolCallEvent|react_agent
+  react_agent --> |ToolCallEvent|tool_executor
+  react_agent --> |ResponseEvent|__end__
+  tool_executor --> |PreparedEvent|react_agent

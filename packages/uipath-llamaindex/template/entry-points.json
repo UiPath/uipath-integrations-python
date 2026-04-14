@@ -1,0 +1,101 @@
+{
+    "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+    "$id": "entry-points.json",
+    "entryPoints": [
+        {
+            "filePath": "agent",
+            "uniqueId": "bc6e956a-bbd4-4a1b-b792-2ef04537b73b",
+            "type": "agent",
+            "input": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "query"
+                ]
+            },
+            "output": {
+                "type": "object",
+                "properties": {
+                    "response": {
+                        "title": "Response",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "response"
+                ]
+            },
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "__start__",
+                        "name": "__start__",
+                        "type": "__start__",
+                        "subgraph": null
+                    },
+                    {
+                        "id": "prepare",
+                        "name": "prepare",
+                        "type": "node",
+                        "subgraph": null
+                    },
+                    {
+                        "id": "react_agent",
+                        "name": "react_agent",
+                        "type": "node",
+                        "subgraph": null
+                    },
+                    {
+                        "id": "tool_executor",
+                        "name": "tool_executor",
+                        "type": "node",
+                        "subgraph": null
+                    },
+                    {
+                        "id": "__end__",
+                        "name": "__end__",
+                        "type": "__end__",
+                        "subgraph": null
+                    }
+                ],
+                "edges": [
+                    {
+                        "source": "__start__",
+                        "target": "prepare",
+                        "label": "QueryEvent"
+                    },
+                    {
+                        "source": "prepare",
+                        "target": "react_agent",
+                        "label": "PreparedEvent"
+                    },
+                    {
+                        "source": "react_agent",
+                        "target": "react_agent",
+                        "label": "ToolCallEvent"
+                    },
+                    {
+                        "source": "react_agent",
+                        "target": "tool_executor",
+                        "label": "ToolCallEvent"
+                    },
+                    {
+                        "source": "react_agent",
+                        "target": "__end__",
+                        "label": "ResponseEvent"
+                    },
+                    {
+                        "source": "tool_executor",
+                        "target": "react_agent",
+                        "label": "PreparedEvent"
+                    }
+                ]
+            }
+        }
+    ]
+}

@@ -136,7 +136,7 @@ def get_entrypoints_schema(workflow: Workflow) -> dict[str, Any]:
     else:
         # For custom StopEvent subclasses, extract their Pydantic schema
         try:
-            output_schema = stop_event_class.model_json_schema()
+            output_schema = stop_event_class.model_json_schema()  # type: ignore[attr-defined]
             # Resolve references and handle nullable types
             unpacked_output, _ = transform_references(output_schema)
             schema["output"]["properties"] = transform_nullable_types(

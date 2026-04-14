@@ -1,13 +1,13 @@
 [project]
 name = "uipath-llamaindex"
-version = "0.5.10"
+version = "0.5.11"
 description = "Python SDK that enables developers to build and deploy LlamaIndex agents to the UiPath Cloud Platform"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
 dependencies = [
     "aiosqlite>=0.21.0",
     "llama-index>=0.14.13, <1.0.0",
-    "llama-index-workflows>=2.14.1, <3.0.0",
+    "llama-index-workflows>=2.18.0, <3.0.0",
     "llama-index-embeddings-azure-openai>=0.4.1",
     "llama-index-llms-azure-openai>=0.4.2",
     "openinference-instrumentation-llama-index>=4.3.9",

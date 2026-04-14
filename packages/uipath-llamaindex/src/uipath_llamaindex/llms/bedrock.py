@@ -53,6 +53,7 @@ from llama_index.core.llms.callbacks import (  # noqa: E402
     llm_chat_callback,
     llm_completion_callback,
 )
+from llama_index.core.tools import ToolSelection  # noqa: E402
 from llama_index.llms.bedrock import Bedrock  # type: ignore[import-untyped]
 from llama_index.llms.bedrock_converse import (  # type: ignore[import-untyped]
     BedrockConverse,
@@ -182,6 +183,16 @@ class UiPathChatBedrockConverse(BedrockConverse):
             aws_access_key_id="none",
             aws_secret_access_key="none",
             **kwargs,
+        )
+
+    def get_tool_calls_from_response(
+        self,
+        response: ChatResponse,
+        error_on_no_tool_call: bool = False,
+        **kwargs: Any,
+    ) -> list[ToolSelection]:
+        return super().get_tool_calls_from_response(
+            response, error_on_no_tool_call=error_on_no_tool_call, **kwargs
         )
 
 

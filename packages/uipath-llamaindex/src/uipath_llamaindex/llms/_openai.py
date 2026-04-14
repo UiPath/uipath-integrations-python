@@ -2,6 +2,8 @@ import os
 from typing import Any
 
 import httpx
+from llama_index.core.base.llms.types import ChatResponse
+from llama_index.core.tools import ToolSelection
 from llama_index.llms.azure_openai import AzureOpenAI  # type: ignore
 from uipath._utils._ssl_context import get_httpx_client_kwargs
 from uipath.utils import EndpointManager
@@ -87,3 +89,13 @@ class UiPathOpenAI(AzureOpenAI):
         }
         final_kwargs = {**defaults, **kwargs}
         super().__init__(**final_kwargs)
+
+    def get_tool_calls_from_response(
+        self,
+        response: ChatResponse,
+        error_on_no_tool_call: bool = False,
+        **kwargs: Any,
+    ) -> list[ToolSelection]:
+        return super().get_tool_calls_from_response(
+            response, error_on_no_tool_call=error_on_no_tool_call, **kwargs
+        )

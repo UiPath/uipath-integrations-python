@@ -4,18 +4,19 @@
     "entryPoints": [
         {
             "filePath": "agent",
-            "uniqueId": "d64050f7-add5-4197-91f2-7b9cf3187751",
+            "uniqueId": "9016cb4a-25b4-44d3-8ace-08c3fea5316e",
             "type": "agent",
             "input": {
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "title": "Query",
+                    "question": {
+                        "description": "Question for the assistant, e.g. 'What's the weather in Paris?'",
+                        "title": "Question",
                         "type": "string"
                     }
                 },
                 "required": [
-                    "query"
+                    "question"
                 ]
             },
             "output": {

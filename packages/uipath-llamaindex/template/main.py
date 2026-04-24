@@ -10,6 +10,7 @@ from llama_index.core.workflow import (
     Workflow,
     step,
 )
+from pydantic import Field
 
 from uipath_llamaindex.llms import BedrockModel, GeminiModel, OpenAIModel, UiPathOpenAI
 from uipath_llamaindex.llms.bedrock import UiPathChatBedrockConverse
@@ -63,7 +64,9 @@ tools_by_name = {t.metadata.name: t for t in tools}
 
 
 class QueryEvent(StartEvent):
-    query: str
+    question: str = Field(
+        description="Question for the assistant, e.g. 'What's the weather in Paris?'"
+    )
 
 
 class LLMInputEvent(Event):
@@ -87,7 +90,7 @@ class TemplateAgent(Workflow):
     async def prepare(self, ctx: Context, ev: QueryEvent) -> LLMInputEvent:
         await ctx.store.set("messages", [
             ChatMessage(role="system", content=SYSTEM_PROMPT),
-            ChatMessage(role="user", content=ev.query),
+            ChatMessage(role="user", content=ev.question),
         ])
         return LLMInputEvent()
 

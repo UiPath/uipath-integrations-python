@@ -3496,7 +3496,7 @@ wheels = [
 
 [[package]]
 name = "uipath-llamaindex"
-version = "0.5.11"
+version = "0.5.12"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

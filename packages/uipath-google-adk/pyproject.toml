@@ -1,6 +1,6 @@
 [project]
 name = "uipath-google-adk"
-version = "0.0.6"
+version = "0.0.7"
 description = "Python SDK that enables developers to build and deploy Google ADK agents to the UiPath Cloud Platform"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -8,7 +8,7 @@ dependencies = [
     "google-adk>=1.25.1",
     "openinference-instrumentation-google-adk>=0.1.9",
     "uipath>=2.10.0, <2.11.0",
-    "uipath-runtime>=0.9.0, <0.10.0",
+    "uipath-runtime>=0.10.0, <0.11.0",
 ]
 classifiers = [
     "Intended Audience :: Developers",

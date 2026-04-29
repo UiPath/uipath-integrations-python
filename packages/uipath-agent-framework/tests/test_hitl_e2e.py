@@ -87,6 +87,9 @@ class MockChatBridge:
     async def emit_exchange_end_event(self) -> None:
         pass
 
+    async def emit_exchange_error_event(self, error: Exception) -> None:
+        pass
+
     async def wait_for_resume(self) -> dict[str, Any]:
         """Return CAS-format approval/rejection response."""
         return {

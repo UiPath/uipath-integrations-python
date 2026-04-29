@@ -1,6 +1,6 @@
 [project]
 name = "uipath-pydantic-ai"
-version = "0.0.3"
+version = "0.0.4"
 description = "Python SDK that enables developers to build and deploy PydanticAI agents to the UiPath Cloud Platform"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -8,7 +8,7 @@ dependencies = [
     "pydantic-ai>=1.63.0, <2.0.0",
     "openinference-instrumentation-pydantic-ai>=0.1.12",
     "uipath>=2.10.2, <2.11.0",
-    "uipath-runtime>=0.9.2, <0.10.0",
+    "uipath-runtime>=0.10.0, <0.11.0",
 ]
 classifiers = [
     "Intended Audience :: Developers",

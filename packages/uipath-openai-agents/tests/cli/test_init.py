@@ -30,6 +30,12 @@ class TestInit:
             with open("openai_agents.json", "w") as f:
                 f.write(openai_agents_config)
 
+            with open("pyproject.toml", "w") as f:
+                f.write(
+                    '[project]\nname = "test-project"\nversion = "0.1.0"\n'
+                    'description = "Test project"\n'
+                )
+
             result = runner.invoke(cli, ["init"])
             assert result.exit_code == 0
             assert os.path.exists("entry-points.json")
@@ -86,6 +92,12 @@ class TestInit:
 
             with open("openai_agents.json", "w") as f:
                 f.write(openai_agents_config)
+
+            with open("pyproject.toml", "w") as f:
+                f.write(
+                    '[project]\nname = "test-project"\nversion = "0.1.0"\n'
+                    'description = "Test project"\n'
+                )
 
             result = runner.invoke(cli, ["init"])
             assert result.exit_code == 0

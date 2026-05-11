@@ -433,6 +433,14 @@ jobs:
           name: coverage-xml-uipath-agent-framework
           path: packages/uipath-agent-framework
 
+      - name: Rewrite coverage XML <source> to repo-relative paths
+        run: |
+          sed -i 's|<source>src/uipath_llamaindex</source>|<source>packages/uipath-llamaindex/src/uipath_llamaindex</source>|g' packages/uipath-llamaindex/coverage.xml || true
+          sed -i 's|<source>src/uipath_openai_agents</source>|<source>packages/uipath-openai-agents/src/uipath_openai_agents</source>|g' packages/uipath-openai-agents/coverage.xml || true
+          sed -i 's|<source>src/uipath_google_adk</source>|<source>packages/uipath-google-adk/src/uipath_google_adk</source>|g' packages/uipath-google-adk/coverage.xml || true
+          sed -i 's|<source>src/uipath_pydantic_ai</source>|<source>packages/uipath-pydantic-ai/src/uipath_pydantic_ai</source>|g' packages/uipath-pydantic-ai/coverage.xml || true
+          sed -i 's|<source>src/uipath_agent_framework</source>|<source>packages/uipath-agent-framework/src/uipath_agent_framework</source>|g' packages/uipath-agent-framework/coverage.xml || true
+
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5
         env:

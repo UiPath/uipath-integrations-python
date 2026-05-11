@@ -50,7 +50,9 @@ class UiPathOpenAI(AzureOpenAI):
         api_version: str = "2024-10-21",
         **kwargs: Any,
     ):
+        token = os.environ.get("UIPATH_ACCESS_TOKEN")
         default_headers_dict = {
+            "Authorization": f"Bearer {token}",
             "X-UiPath-LlmGateway-ApiFlavor": "auto",
             "X-UiPath-LlmGateway-RequestingProduct": "uipath-python-sdk",
             "X-UiPath-LlmGateway-RequestingFeature": "llama-index-agent",
@@ -74,7 +76,7 @@ class UiPathOpenAI(AzureOpenAI):
             "model": model_value,
             "deployment_name": model_value,
             "azure_endpoint": f"{base_url}/{vendor_endpoint}",
-            "api_key": os.environ.get("UIPATH_ACCESS_TOKEN"),
+            "api_key": "uipath-gateway",
             "api_version": api_version,
             "is_chat_model": True,
             "default_headers": default_headers_dict,

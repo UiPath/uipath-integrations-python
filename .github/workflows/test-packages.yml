@@ -2,6 +2,9 @@ name: Test Packages
 
 on:
   workflow_call:
+    secrets:
+      SONAR_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -77,9 +80,30 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-llamaindex
         run: uv run pytest
+
+      - name: Run tests with coverage
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        working-directory: packages/uipath-llamaindex
+        run: uv run pytest --cov-report=xml --cov-report=html --tb=short
+
+      - name: Upload coverage HTML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-uipath-llamaindex
+          path: packages/uipath-llamaindex/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-uipath-llamaindex
+          path: packages/uipath-llamaindex/coverage.xml
+          retention-days: 30
 
   test-openai-agents:
     name: Test (uipath-openai-agents, ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -126,9 +150,30 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-openai-agents
         run: uv run pytest
+
+      - name: Run tests with coverage
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        working-directory: packages/uipath-openai-agents
+        run: uv run pytest --cov-report=xml --cov-report=html --tb=short
+
+      - name: Upload coverage HTML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-uipath-openai-agents
+          path: packages/uipath-openai-agents/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-uipath-openai-agents
+          path: packages/uipath-openai-agents/coverage.xml
+          retention-days: 30
 
   test-google-adk:
     name: Test (uipath-google-adk, ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -175,9 +220,30 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-google-adk
         run: uv run pytest
+
+      - name: Run tests with coverage
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        working-directory: packages/uipath-google-adk
+        run: uv run pytest --cov-report=xml --cov-report=html --tb=short
+
+      - name: Upload coverage HTML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-uipath-google-adk
+          path: packages/uipath-google-adk/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-uipath-google-adk
+          path: packages/uipath-google-adk/coverage.xml
+          retention-days: 30
 
   test-pydantic-ai:
     name: Test (uipath-pydantic-ai, ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -224,9 +290,30 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-pydantic-ai
         run: uv run pytest
+
+      - name: Run tests with coverage
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        working-directory: packages/uipath-pydantic-ai
+        run: uv run pytest --cov-report=xml --cov-report=html --tb=short
+
+      - name: Upload coverage HTML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-uipath-pydantic-ai
+          path: packages/uipath-pydantic-ai/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-uipath-pydantic-ai
+          path: packages/uipath-pydantic-ai/coverage.xml
+          retention-days: 30
 
   test-agent-framework:
     name: Test (uipath-agent-framework, ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -273,6 +360,80 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true'
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-agent-framework
         run: uv run pytest
+
+      - name: Run tests with coverage
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        working-directory: packages/uipath-agent-framework
+        run: uv run pytest --cov-report=xml --cov-report=html --tb=short
+
+      - name: Upload coverage HTML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-uipath-agent-framework
+          path: packages/uipath-agent-framework/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-uipath-agent-framework
+          path: packages/uipath-agent-framework/coverage.xml
+          retention-days: 30
+
+  sonarcloud:
+    name: SonarCloud
+    needs: [test-llamaindex, test-openai-agents, test-google-adk, test-pydantic-ai, test-agent-framework]
+    runs-on: ubuntu-latest
+    if: always() && needs.test-llamaindex.result != 'failure' && needs.test-openai-agents.result != 'failure' && needs.test-google-adk.result != 'failure' && needs.test-pydantic-ai.result != 'failure' && needs.test-agent-framework.result != 'failure'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download uipath-llamaindex coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: coverage-xml-uipath-llamaindex
+          path: packages/uipath-llamaindex
+
+      - name: Download uipath-openai-agents coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: coverage-xml-uipath-openai-agents
+          path: packages/uipath-openai-agents
+
+      - name: Download uipath-google-adk coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: coverage-xml-uipath-google-adk
+          path: packages/uipath-google-adk
+
+      - name: Download uipath-pydantic-ai coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: coverage-xml-uipath-pydantic-ai
+          path: packages/uipath-pydantic-ai
+
+      - name: Download uipath-agent-framework coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: coverage-xml-uipath-agent-framework
+          path: packages/uipath-agent-framework
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703 # v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

@@ -114,7 +114,14 @@ asyncio_default_fixture_loop_scope = "function"
 asyncio_mode = "auto"
 
 [tool.uv]
+exclude-newer = "2 days"
 prerelease = "allow"
+
+[tool.uv.exclude-newer-package]
+uipath = false
+uipath-core = false
+uipath-platform = false
+uipath-runtime = false
 
 [[tool.uv.index]]
 name = "testpypi"

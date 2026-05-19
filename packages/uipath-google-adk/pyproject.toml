@@ -108,6 +108,7 @@ asyncio_default_fixture_loop_scope = "function"
 asyncio_mode = "auto"
 
 [tool.uv]
+exclude-newer = "2 days"
 # google-adk transitively depends on opentelemetry-exporter-gcp-logging which
 # pins opentelemetry-sdk<1.39.0, but uipath-core requires >=1.39.0.
 # google-adk itself allows opentelemetry-sdk>=1.36.0,<1.40.0 (since v1.24.0)
@@ -116,6 +117,12 @@ asyncio_mode = "auto"
 override-dependencies = [
     "opentelemetry-sdk>=1.39.0,<1.40.0",
 ]
+
+[tool.uv.exclude-newer-package]
+uipath = false
+uipath-core = false
+uipath-platform = false
+uipath-runtime = false
 
 [[tool.uv.index]]
 name = "testpypi"

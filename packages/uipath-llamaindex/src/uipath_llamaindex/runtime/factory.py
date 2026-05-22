@@ -1,7 +1,9 @@
 """Factory for creating LlamaIndex runtimes from llama_index.json configuration."""
 
 import asyncio
+import json
 import os
+from functools import cached_property
 
 from openinference.instrumentation.llama_index import (
     LlamaIndexInstrumentor,
@@ -108,6 +110,21 @@ class UiPathLlamaIndexRuntimeFactory:
         if self._config is None:
             self._config = LlamaIndexConfig()
         return self._config
+
+    @cached_property
+    def is_conversational(self) -> bool:
+        """Read runtimeOptions.isConversational from uipath.json.
+
+        Returns False when the file is absent, unreadable, or the flag is
+        missing.
+        """
+        try:
+            with open(self.context.config_path, "r") as f:
+                config = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return False
+
+        return bool(config.get("runtimeOptions", {}).get("isConversational", False))
 
     async def _load_workflow(self, entrypoint: str) -> Workflow:
         """
@@ -254,6 +271,7 @@ class UiPathLlamaIndexRuntimeFactory:
             entrypoint=entrypoint,
             storage=storage,
             debug_mode=self.context.command == "debug",
+            is_conversational=self.is_conversational,
         )
 
         trigger_manager = UiPathResumeTriggerHandler()

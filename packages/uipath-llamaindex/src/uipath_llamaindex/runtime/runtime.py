@@ -65,6 +65,7 @@ class UiPathLlamaIndexRuntime:
         entrypoint: str | None = None,
         storage: SqliteResumableStorage | None = None,
         debug_mode: bool = False,
+        is_conversational: bool = False,
     ):
         """
         Initialize the runtime.
@@ -73,13 +74,21 @@ class UiPathLlamaIndexRuntime:
             workflow: The Workflow to execute
             runtime_id: Unique identifier for this runtime instance
             entrypoint: Optional entrypoint name (for schema generation)
+            storage: Optional storage backend for workflow context
+            debug_mode: Whether to enable breakpoint injection
+            is_conversational: When True, the workflow accumulates state
+                across turns. Any execution that finds prior stored context
+                continues from it; only the first turn (no stored context)
+                starts a fresh workflow run.
         """
         self.workflow: Workflow = workflow
         self.runtime_id: str = runtime_id or "default"
         self.entrypoint: str | None = entrypoint
         self.storage: SqliteResumableStorage | None = storage
         self.debug_mode: bool = debug_mode
+        self.is_conversational: bool = is_conversational
         self._context: Context | None = None
+        self._has_prior_state: bool = False
 
         if debug_mode:
             inject_breakpoints(self.workflow)
@@ -139,9 +148,12 @@ class UiPathLlamaIndexRuntime:
         Core workflow execution logic used by both execute() and stream().
         """
         workflow_input = UiPathChatMessagesMapper.map_input(input or {})
-        is_resuming = bool(options and options.resume)
 
         self._context = await self._load_context()
+
+        is_resuming = bool(options and options.resume) or (
+            self.is_conversational and self._has_prior_state
+        )
 
         if is_resuming:
             handler: WorkflowHandler = self.workflow.run(ctx=self._context)
@@ -329,7 +341,13 @@ class UiPathLlamaIndexRuntime:
         )
 
     async def _load_context(self) -> Context:
-        """Load the workflow context from storage."""
+        """Load the workflow context from storage, or create a fresh one.
+
+        Sets ``self._has_prior_state`` to indicate whether the returned
+        context was restored from storage (True) or freshly created (False).
+        """
+        self._has_prior_state = False
+
         if not self.storage:
             return Context(self.workflow)
 
@@ -339,6 +357,7 @@ class UiPathLlamaIndexRuntime:
             from workflows.context.serializers import JsonPickleSerializer
 
             serializer = JsonPickleSerializer()
+            self._has_prior_state = True
             return Context.from_dict(
                 self.workflow,
                 context_dict,

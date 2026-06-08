@@ -71,6 +71,7 @@ class MockChatBridge:
         self.auto_approve = auto_approve
         self.interrupts: list[UiPathResumeTrigger] = []
         self.messages: list[Any] = []
+        self.executing_tool_calls: list[tuple[str, dict[str, Any] | None]] = []
 
     async def connect(self) -> None:
         pass
@@ -83,6 +84,13 @@ class MockChatBridge:
 
     async def emit_interrupt_event(self, resume_trigger: UiPathResumeTrigger) -> None:
         self.interrupts.append(resume_trigger)
+
+    async def emit_executing_tool_call_event(
+        self,
+        tool_call_id: str,
+        tool_input: dict[str, Any] | None = None,
+    ) -> None:
+        self.executing_tool_calls.append((tool_call_id, tool_input))
 
     async def emit_exchange_end_event(self) -> None:
         pass

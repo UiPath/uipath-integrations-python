@@ -1,3 +1,5 @@
+from functools import cached_property
+
 from llama_index.core.workflow import (
     Event,
     StartEvent,
@@ -5,7 +7,10 @@ from llama_index.core.workflow import (
     Workflow,
     step,
 )
-from llama_index.llms.openai import OpenAI
+
+from uipath_llamaindex.llms import BedrockModel, GeminiModel, OpenAIModel, UiPathOpenAI
+from uipath_llamaindex.llms.bedrock import UiPathChatBedrockConverse
+from uipath_llamaindex.llms.vertex import UiPathVertex
 
 
 class TopicEvent(StartEvent):
@@ -22,7 +27,12 @@ class CritiqueEvent(StopEvent):
 
 
 class JokeFlow(Workflow):
-    llm = OpenAI()
+    @cached_property
+    def llm(self):
+        # Choose your LLM provider by uncommenting one of the following:
+        return UiPathChatBedrockConverse(model=BedrockModel.anthropic_claude_haiku_4_5)
+        # return UiPathOpenAI(model=OpenAIModel.GPT_4_1_MINI_2025_04_14.value)
+        # return UiPathVertex(model=GeminiModel.gemini_2_5_flash)
 
     @step
     async def generate_joke(self, ev: TopicEvent) -> JokeEvent:

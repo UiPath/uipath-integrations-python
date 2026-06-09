@@ -31,8 +31,7 @@ version = "0.0.1"
 description = "{project_name}"
 authors = [{{ name = "John Doe", email = "john.doe@myemail.com" }}]
 dependencies = [
-    "uipath-llamaindex>=0.5.0, <0.6.0",
-    "llama-index-llms-openai>=0.6.10"
+    "uipath-llamaindex[bedrock,vertex]>=0.5.0, <0.6.0",
 ]
 requires-python = ">=3.11"
 """
@@ -54,9 +53,6 @@ def llamaindex_new_middleware(name: str) -> MiddlewareResult:
             console.success("Created 'llama_index.json' file.")
             generate_pyproject(directory, name)
             console.success("Created 'pyproject.toml' file.")
-            console.config(
-                f""" Please ensure to define {click.style("OPENAI_API_KEY", fg="bright_yellow")} in your .env file. """
-            )
             init_command = """uipath init"""
             run_command = """uipath run agent '{"topic": "UiPath"}'"""
             console.hint(

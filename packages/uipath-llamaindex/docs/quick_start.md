@@ -104,7 +104,6 @@ Generate your first UiPath LlamaIndex agent:
 ✓  Created 'main.py' file.
 ✓  Created 'llama_index.json' file.
 ✓  Created 'pyproject.toml' file.
-🔧  Please ensure to define OPENAI_API_KEY in your .env file.
 💡  Initialize project: uipath init
 💡  Run agent: uipath run agent '{"topic": "UiPath"}'
 ```
@@ -137,18 +136,6 @@ This command creates the following files:
 | `.env`           | Environment variables and secrets (this file will not be packed & published).                                                     |
 | `uipath.json`    | Input/output JSON schemas and bindings.                                                                                           |
 | `agent.mermaid`  | Graph visual representation.                                                                                                      |
-
-## Set Up Environment Variables
-
-Before running the agent, configure `OPENAI_API_KEY` in the `.env` file:
-
-//// tab | Open AI
-
-```
-OPENAI_API_KEY=sk-proj-......
-```
-
-////
 
 ## Authenticate With UiPath
 

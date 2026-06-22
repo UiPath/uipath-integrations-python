@@ -1,0 +1,434 @@
+"""Google ADK adapter for UiPath governance.
+
+Provides governance for Google ADK agents (``google.adk.agents.LlmAgent``
+and any ``BaseAgent`` tree containing them). Unlike the LangChain adapter
+— which wraps a ``Runnable`` and intercepts ``invoke`` / ``ainvoke`` — ADK
+agents are executed by a ``Runner`` that holds its **own** reference to
+the agent object. Replacing ``runtime.agent`` with a proxy would never
+reach the ``Runner``. So this adapter installs governance directly onto
+each ``LlmAgent``'s native callback attributes, mutating them in place:
+
+- ``before_model_callback``  → BEFORE_MODEL
+- ``after_model_callback``   → AFTER_MODEL
+- ``before_tool_callback``   → TOOL_CALL
+- ``after_tool_callback``    → AFTER_TOOL
+
+Because the mutation is in place, :meth:`GoogleADKAdapter.attach` returns
+the **original agent** (hooks installed) rather than a wrapping proxy.
+Returning a proxy here would also break ADK's own ``isinstance(agent,
+LlmAgent)`` checks in output-schema / graph resolution, since ``LlmAgent``
+is a Pydantic model.
+
+Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are intentionally
+*not* fired from here — they are owned by the runtime wrapper layer in
+``uipath-runtime`` (``GovernanceRuntime.execute`` / ``.stream``). Firing
+them here too would duplicate every boundary evaluation.
+
+Contracts and the evaluator protocol come from ``uipath-core``; this
+package contributes only the ADK-specific implementation and
+self-registers it with the global adapter registry when
+``uipath_google_adk.governance`` is imported.
+
+Audit emission and enforcement (raising :class:`GovernanceBlockException`
+on DENY) are owned by the evaluator itself. Each callback only extracts
+the relevant payload and calls the matching ``evaluate_*`` method;
+:class:`GovernanceBlockException` is allowed to propagate (it aborts the
+``Runner`` run), anything else is logged and swallowed so a governance
+bug never breaks an agent run.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, List
+from uuid import uuid4
+
+from uipath.core.adapters import BaseAdapter, EvaluatorProtocol
+from uipath.core.governance.exceptions import GovernanceBlockException
+
+logger = logging.getLogger(__name__)
+
+# Cap on the text blob passed to BEFORE_MODEL / AFTER_MODEL governance
+# evaluation. Sized to match the runtime side (``_GOVERNANCE_TEXT_CAP``
+# in ``uipath.runtime.governance.wrapper``) and the LangChain adapter so
+# scan-time budgets are consistent across hooks. A long conversation
+# history is governed at the LLM layer by scanning only the latest
+# request content, not the full prompt — see
+# :meth:`GovernanceCallbacks._latest_request_text`.
+_BEFORE_MODEL_TEXT_CAP = 64000
+
+# Native LlmAgent callback attribute names this adapter manages.
+_MODEL_BEFORE = "before_model_callback"
+_MODEL_AFTER = "after_model_callback"
+_TOOL_BEFORE = "before_tool_callback"
+_TOOL_AFTER = "after_tool_callback"
+
+
+def _is_governance_callable(fn: Any) -> bool:
+    """True if ``fn`` is a bound method of a :class:`GovernanceCallbacks`."""
+    return isinstance(getattr(fn, "__self__", None), GovernanceCallbacks)
+
+
+def _install_callback(agent: Any, attr: str, fn: Any) -> None:
+    """Prepend ``fn`` to an ADK callback slot, preserving existing handlers.
+
+    ADK accepts a single callable or a ``list`` of callables for each
+    ``*_callback`` field and runs them in order, stopping early if one
+    returns a value (a short-circuit). Governance is prepended (runs
+    first) so it always evaluates — and can BLOCK — before any
+    user-supplied callback gets a chance to short-circuit the model /
+    tool call.
+
+    Idempotent: if a governance callback is already present in the slot,
+    this is a no-op (so a double ``attach`` does not stack duplicates).
+    """
+    existing = getattr(agent, attr, None)
+    if existing is None:
+        handlers: List[Any] = []
+    elif isinstance(existing, list):
+        handlers = list(existing)
+    else:
+        handlers = [existing]
+    if any(_is_governance_callable(h) for h in handlers):
+        return
+    setattr(agent, attr, [fn, *handlers])
+
+
+def _remove_callbacks(agent: Any) -> None:
+    """Strip this adapter's governance callbacks from every managed slot."""
+    for attr in (_MODEL_BEFORE, _MODEL_AFTER, _TOOL_BEFORE, _TOOL_AFTER):
+        existing = getattr(agent, attr, None)
+        if existing is None:
+            continue
+        if isinstance(existing, list):
+            kept = [h for h in existing if not _is_governance_callable(h)]
+            setattr(agent, attr, kept or None)
+        elif _is_governance_callable(existing):
+            setattr(agent, attr, None)
+
+
+def _iter_llm_agents(root: Any) -> List[Any]:
+    """Return every ``LlmAgent``-shaped node in the ``sub_agents`` tree.
+
+    A node qualifies if it exposes the model-callback surface (duck-typed
+    via :data:`_MODEL_BEFORE` so we don't hard-require ``LlmAgent`` to be
+    importable). Container agents (``Sequential`` / ``Parallel`` / ``Loop``)
+    have no model callbacks themselves but their ``sub_agents`` are walked
+    so a multi-agent app is governed end to end. Cycles and pathological
+    depth are bounded by an id-visited set and a hard cap.
+    """
+    found: List[Any] = []
+    seen: set[int] = set()
+    stack: List[Any] = [root]
+    while stack and len(seen) < 1000:
+        node = stack.pop()
+        if node is None or id(node) in seen:
+            continue
+        seen.add(id(node))
+        if hasattr(node, _MODEL_BEFORE):
+            found.append(node)
+        sub_agents = getattr(node, "sub_agents", None)
+        if isinstance(sub_agents, (list, tuple)):
+            stack.extend(sub_agents)
+    return found
+
+
+class GoogleADKAdapter(BaseAdapter):
+    """Adapter for the Google ADK framework.
+
+    Detects ``google.adk`` agents and installs governance callbacks on
+    every ``LlmAgent`` reachable through the ``sub_agents`` tree.
+    """
+
+    @property
+    def name(self) -> str:
+        return "GoogleADK"
+
+    def can_handle(self, agent: Any) -> bool:
+        """Return True if this adapter knows how to hook into the agent."""
+        try:
+            from google.adk.agents import BaseAgent
+
+            if isinstance(agent, BaseAgent):
+                return True
+        except ImportError:
+            pass
+
+        # Duck-typed fallback: an ADK agent exposes a name plus either the
+        # model-callback surface (LlmAgent) or a sub_agents container.
+        if hasattr(agent, "name") and (
+            hasattr(agent, _MODEL_BEFORE) or hasattr(agent, "sub_agents")
+        ):
+            return True
+        return False
+
+    def attach(
+        self,
+        agent: Any,
+        agent_id: str,
+        session_id: str,
+        evaluator: EvaluatorProtocol,
+    ) -> Any:
+        """Install governance callbacks on the agent (mutated in place).
+
+        Returns the original ``agent`` — the ``Runner`` already holds this
+        reference, so in-place mutation is what actually wires governance
+        into execution. A wrapping proxy would not reach the ``Runner``
+        and would break ADK's ``isinstance(agent, LlmAgent)`` checks.
+        """
+        callbacks = GovernanceCallbacks(
+            evaluator=evaluator,
+            agent_name=agent_id,
+            session_id=session_id,
+        )
+        llm_agents = _iter_llm_agents(agent)
+        for node in llm_agents:
+            _install_callback(node, _MODEL_BEFORE, callbacks.before_model)
+            _install_callback(node, _MODEL_AFTER, callbacks.after_model)
+            _install_callback(node, _TOOL_BEFORE, callbacks.before_tool)
+            _install_callback(node, _TOOL_AFTER, callbacks.after_tool)
+        if not llm_agents:
+            logger.warning(
+                "GoogleADKAdapter found no LlmAgent in %s — deep hooks will not fire",
+                type(agent).__name__,
+            )
+        else:
+            logger.debug(
+                "Installed governance callbacks on %d ADK LlmAgent(s)",
+                len(llm_agents),
+            )
+        return agent
+
+    def detach(self, governed: Any) -> Any:
+        """Remove governance callbacks from the agent tree and return it."""
+        for node in _iter_llm_agents(governed):
+            _remove_callbacks(node)
+        return governed
+
+
+class GovernanceCallbacks:
+    """Holds the four ADK callbacks bound to one governance evaluator.
+
+    The evaluator owns audit emission and DENY-raising. Each callback
+    extracts the relevant payload, calls the matching ``evaluate_*``
+    method, and returns ``None`` (never short-circuiting the model / tool
+    on its own). :class:`GovernanceBlockException` is allowed to
+    propagate — it aborts the ``Runner`` run — anything else is logged
+    and swallowed.
+    """
+
+    def __init__(
+        self,
+        evaluator: EvaluatorProtocol,
+        agent_name: str,
+        session_id: str,
+    ) -> None:
+        self._evaluator = evaluator
+        self._agent_name = agent_name
+        self._session_id = session_id
+        self._trace_id = str(uuid4())
+        self._session_state: Dict[str, Any] = {"tool_calls": 0, "llm_calls": 0}
+
+    # ----- Model callbacks -------------------------------------------------
+
+    def before_model(self, callback_context: Any, llm_request: Any) -> None:
+        """Evaluate BEFORE_MODEL rules at model start.
+
+        Scans only the **latest request content** — not the full history.
+        The model still receives the entire history (this callback does
+        not mutate ``llm_request``); the evaluator focuses on the new
+        content the agent is about to respond to. Without this scoping, a
+        violation in an earlier turn would re-fire on every subsequent
+        model call because that text stays in the prompt for context.
+
+        Returns ``None`` so ADK proceeds with the model call.
+        """
+        try:
+            self._session_state["llm_calls"] = (
+                self._session_state.get("llm_calls", 0) + 1
+            )
+            model_input = self._latest_request_text(llm_request)
+            self._evaluator.evaluate_before_model(
+                model_input=model_input,
+                agent_name=self._agent_name,
+                runtime_id=self._session_id,
+                trace_id=self._trace_id,
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:
+            logger.warning("before_model governance check failed (continuing): %s", e)
+        return None
+
+    def after_model(self, callback_context: Any, llm_response: Any) -> None:
+        """Evaluate AFTER_MODEL rules at model end.
+
+        Partial (streamed) responses are skipped — ADK fires
+        ``after_model_callback`` for each chunk with ``partial=True`` and
+        once more for the aggregated final response. Governing only the
+        final response avoids re-scanning the same text token-by-token.
+
+        Returns ``None`` so ADK keeps the model's response unchanged.
+        """
+        try:
+            if getattr(llm_response, "partial", False):
+                return None
+            content = getattr(llm_response, "content", None)
+            model_output = self._content_text(content)
+            self._evaluator.evaluate_after_model(
+                model_output=model_output,
+                agent_name=self._agent_name,
+                runtime_id=self._session_id,
+                trace_id=self._trace_id,
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:
+            logger.warning("after_model governance check failed (continuing): %s", e)
+        return None
+
+    # ----- Tool callbacks --------------------------------------------------
+
+    def before_tool(self, tool: Any, args: Dict[str, Any], tool_context: Any) -> None:
+        """Evaluate TOOL_CALL rules at tool start.
+
+        Returns ``None`` so ADK proceeds with the tool call (a non-None
+        return would short-circuit it with a substitute result).
+        """
+        try:
+            self._session_state["tool_calls"] = (
+                self._session_state.get("tool_calls", 0) + 1
+            )
+            tool_name = getattr(tool, "name", None) or "unknown"
+            self._evaluator.evaluate_tool_call(
+                tool_name=tool_name,
+                tool_args=args or {},
+                agent_name=self._agent_name,
+                runtime_id=self._session_id,
+                trace_id=self._trace_id,
+                session_state=self._session_state,
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:
+            logger.warning("before_tool governance check failed (continuing): %s", e)
+        return None
+
+    def after_tool(
+        self,
+        tool: Any,
+        args: Dict[str, Any],
+        tool_context: Any,
+        tool_response: Any,
+    ) -> None:
+        """Evaluate AFTER_TOOL rules at tool end.
+
+        Returns ``None`` so ADK keeps the tool's result unchanged.
+        """
+        try:
+            tool_name = getattr(tool, "name", None) or "unknown"
+            tool_result = (
+                "" if tool_response is None else self._stringify(tool_response)
+            )
+            self._evaluator.evaluate_after_tool(
+                tool_name=tool_name,
+                tool_result=tool_result,
+                agent_name=self._agent_name,
+                runtime_id=self._session_id,
+                trace_id=self._trace_id,
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:
+            logger.warning("after_tool governance check failed (continuing): %s", e)
+        return None
+
+    # ----- Text extraction -------------------------------------------------
+
+    def _latest_request_text(self, llm_request: Any) -> str:
+        """Extract text from the most-recent content in an ``LlmRequest``.
+
+        ``llm_request.contents`` is the full ``list[Content]`` sent to the
+        model. We take the last entry — the new user message, or the tool
+        ``function_response`` being fed back — and pull its text cleanly
+        via :meth:`_content_text`. Returns ``""`` when there is nothing
+        extractable.
+        """
+        contents = getattr(llm_request, "contents", None)
+        if not contents:
+            return ""
+        return self._content_text(contents[-1])
+
+    @classmethod
+    def _content_text(cls, content: Any) -> str:
+        """Return governance-relevant text from a ``Content`` (or part list).
+
+        Walks ``content.parts`` and pulls, per part:
+
+        - ``part.text`` — plain text.
+        - ``part.function_call`` — the tool name plus JSON-encoded
+          ``args``; ADK / Gemini routinely carry the user-visible reply in
+          a function call (e.g. a "submit final answer" tool).
+        - ``part.function_response`` — the tool result fed back to the
+          model; relevant when it is the latest content for BEFORE_MODEL.
+
+        Capped at :data:`_BEFORE_MODEL_TEXT_CAP` so a runaway response or
+        large tool payload can't blow scan budgets.
+        """
+        if content is None:
+            return ""
+        parts = getattr(content, "parts", None)
+        if parts is None:
+            # Some shapes hand us a bare string or a list of parts.
+            if isinstance(content, str):
+                return content[:_BEFORE_MODEL_TEXT_CAP]
+            if isinstance(content, (list, tuple)):
+                parts = content
+            else:
+                return ""
+        collected: List[str] = []
+        remaining = _BEFORE_MODEL_TEXT_CAP
+        for part in parts:
+            if remaining <= 0:
+                break
+            piece = cls._part_text(part)
+            if piece:
+                collected.append(piece)
+                remaining -= len(piece) + 1
+        return "\n".join(collected)[:_BEFORE_MODEL_TEXT_CAP]
+
+    @classmethod
+    def _part_text(cls, part: Any) -> str:
+        """Return text / function-call args / function-response from one part."""
+        pieces: List[str] = []
+        text = getattr(part, "text", None)
+        if isinstance(text, str) and text:
+            pieces.append(text)
+
+        function_call = getattr(part, "function_call", None)
+        if function_call is not None:
+            name = getattr(function_call, "name", "") or ""
+            fc_args = getattr(function_call, "args", None)
+            if name:
+                pieces.append(name)
+            if fc_args:
+                pieces.append(cls._stringify(fc_args))
+
+        function_response = getattr(part, "function_response", None)
+        if function_response is not None:
+            response = getattr(function_response, "response", None)
+            if response:
+                pieces.append(cls._stringify(response))
+
+        return "\n".join(p for p in pieces if p)
+
+    @staticmethod
+    def _stringify(value: Any) -> str:
+        """Render a dict / object payload as compact, scannable text."""
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(value)

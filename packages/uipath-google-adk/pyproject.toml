@@ -8,6 +8,7 @@ dependencies = [
     "google-adk>=1.25.1",
     "openinference-instrumentation-google-adk>=0.1.9",
     "uipath>=2.10.0, <2.11.0",
+    "uipath-core>=0.5.18, <0.7.0",
     "uipath-runtime>=0.11.0, <0.12.0",
 ]
 classifiers = [
@@ -29,6 +30,9 @@ register = "uipath_google_adk.middlewares:register_middleware"
 
 [project.entry-points."uipath.runtime.factories"]
 google-adk = "uipath_google_adk.runtime:register_runtime_factory"
+
+[project.entry-points."uipath.governance.adapters"]
+google-adk = "uipath_google_adk.governance:register_governance_adapter"
 
 [project.urls]
 Homepage = "https://uipath.com"

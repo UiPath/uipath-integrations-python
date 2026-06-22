@@ -10,6 +10,7 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "openinference-instrumentation-agent-framework>=0.1.0",
     "uipath>=2.10.0, <2.11.0",
+    "uipath-core>=0.5.18, <0.7.0",
     "uipath-runtime>=0.11.0, <0.12.0",
 ]
 classifiers = [
@@ -31,6 +32,9 @@ register = "uipath_agent_framework.middlewares:register_middleware"
 
 [project.entry-points."uipath.runtime.factories"]
 agent-framework = "uipath_agent_framework.runtime:register_runtime_factory"
+
+[project.entry-points."uipath.governance.adapters"]
+agent-framework = "uipath_agent_framework.governance:register_governance_adapter"
 
 [project.urls]
 Homepage = "https://uipath.com"

@@ -10,6 +10,7 @@ dependencies = [
     "openai-agents>=0.6.5",
     "openinference-instrumentation-openai-agents>=1.4.0",
     "uipath>=2.10.0, <2.11.0",
+    "uipath-core>=0.5.18, <0.7.0",
     "uipath-runtime>=0.11.0, <0.12.0",
 ]
 classifiers = [
@@ -29,6 +30,9 @@ register = "uipath_openai_agents.middlewares:register_middleware"
 
 [project.entry-points."uipath.runtime.factories"]
 openai-agents = "uipath_openai_agents.runtime:register_runtime_factory"
+
+[project.entry-points."uipath.governance.adapters"]
+openai-agents = "uipath_openai_agents.governance:register_governance_adapter"
 
 [project.urls]
 Homepage = "https://uipath.com"

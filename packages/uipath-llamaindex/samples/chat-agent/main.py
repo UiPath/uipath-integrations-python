@@ -4,7 +4,7 @@ from llama_index.core.agent.workflow import AgentWorkflow
 from llama_index.llms.openai import OpenAI
 from llama_index.tools.tavily_research import TavilyToolSpec
 
-llm = OpenAI(model="gpt-4o-mini")
+llm = OpenAI(model="gpt-4.1-mini-2025-04-14")
 tavily_tool = TavilyToolSpec(api_key=os.environ["TAVILY_API_KEY"])
 
 SYSTEM_PROMPT = (

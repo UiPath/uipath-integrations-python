@@ -38,7 +38,7 @@ class ReportOutput(BaseModel):
     code_snippet: str = Field(description="A relevant Python code example")
 
 
-MODEL = "gpt-4o-mini-2024-07-18"
+MODEL = "gpt-4.1-mini-2025-04-14"
 uipath_client = UiPathChatOpenAI(model_name=MODEL)
 
 

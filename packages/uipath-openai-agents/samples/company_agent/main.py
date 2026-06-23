@@ -65,7 +65,7 @@ hr_agent = Agent(
 
     Be professional, empathetic, and maintain confidentiality.
     When employees introduce themselves by name, acknowledge them personally.""",
-    model="gpt-4o-mini",
+    model="gpt-4.1-mini-2025-04-14",
     tools=[
         check_pto_balance,
         submit_leave_request,
@@ -101,7 +101,7 @@ procurement_agent = Agent(
 
     Always search for preferred vendors when employees ask about suppliers.
     Be helpful in navigating procurement processes.""",
-    model="gpt-4o-mini",
+    model="gpt-4.1-mini-2025-04-14",
     tools=[
         check_budget_availability,
         get_vendor_information,
@@ -140,7 +140,7 @@ policy_agent = Agent(
 
     Be clear, precise, and cite specific policy sections.
     If employees have complex scenarios, help them submit clarification requests.""",
-    model="gpt-4o-mini",
+    model="gpt-4.1-mini-2025-04-14",
     tools=[
         get_company_policy,
         check_compliance_status,

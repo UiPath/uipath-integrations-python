@@ -61,7 +61,7 @@ def get_weather(location: str) -> str:
 agent = Agent(
     name="weather_agent",
     model=UiPathGemini(model="gemini-2.5-flash"),
-    # model=UiPathOpenAI(model="gpt-4o-mini-2024-07-18"),
+    # model=UiPathOpenAI(model="gpt-4.1-mini-2025-04-14"),
     # model=UiPathAnthropic(model="anthropic.claude-haiku-4-5-20251001-v1:0"),
     instruction="You are a helpful weather assistant. Use the get_weather tool to provide weather information.",
     tools=[get_weather],

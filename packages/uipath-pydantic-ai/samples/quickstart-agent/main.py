@@ -56,7 +56,7 @@ def get_weather(ctx: RunContext[None], location: str) -> str:
         return f"Weather fetch failed: {e}"
 
 
-uipath_client = UiPathChatOpenAI(model_name="gpt-4o-mini-2024-07-18")
+uipath_client = UiPathChatOpenAI(model_name="gpt-4.1-mini-2025-04-14")
 
 agent = Agent(
     uipath_client.model,

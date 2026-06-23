@@ -50,7 +50,7 @@ class SupportResponse(BaseModel):
 
 # --- Agents ---
 
-MODEL = "gpt-4o-mini-2024-07-18"
+MODEL = "gpt-4.1-mini-2025-04-14"
 uipath_client = UiPathChatOpenAI(model_name=MODEL)
 
 # Step 1: Classify the request

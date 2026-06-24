@@ -20,8 +20,8 @@ are covered (the runtime uses ``agent.run`` and ``agent.iter`` respectively).
 Because the wrap is installed on ``agent.model`` in place, :meth:`attach`
 returns the **original agent**; :meth:`detach` restores the original model.
 
-Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the runtime
-wrapper layer in ``uipath-runtime`` and are intentionally not fired here.
+Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
+governance host and are intentionally not fired here.
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
 contributes only the Pydantic-AI-specific implementation and self-registers it
@@ -70,20 +70,12 @@ class PydanticAIAdapter(BaseAdapter):
         return "PydanticAI"
 
     def can_handle(self, agent: Any) -> bool:
-        """Return True if this adapter knows how to hook into the agent."""
+        """Return True only for a ``pydantic_ai.Agent``."""
         try:
             from pydantic_ai import Agent
-
-            if isinstance(agent, Agent):
-                return True
         except ImportError:
-            pass
-
-        # Duck-typed fallback: a Pydantic AI agent exposes a model slot plus the
-        # run / iter execution surface.
-        if hasattr(agent, "model") and hasattr(agent, "run") and hasattr(agent, "iter"):
-            return True
-        return False
+            return False
+        return isinstance(agent, Agent)
 
     def attach(
         self,

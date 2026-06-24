@@ -88,7 +88,12 @@ def test_can_handle_agent():
     assert PydanticAIAdapter().can_handle(Agent(model=TestModel())) is True
 
 
-def test_can_handle_rejects_plain_object():
+def test_can_handle_rejects_non_agent():
+    from types import SimpleNamespace
+
+    # A duck-typed look-alike (model/run/iter) must NOT be claimed — only a real Agent.
+    look_alike = SimpleNamespace(model=object(), run=lambda: None, iter=lambda: None)
+    assert PydanticAIAdapter().can_handle(look_alike) is False
     assert PydanticAIAdapter().can_handle(object()) is False
 
 

@@ -87,11 +87,22 @@ def _handler(ev: FakeEvaluator) -> GovernanceEventHandler:
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_workflow_like():
-    assert LlamaIndexAdapter().can_handle(FakeWorkflow()) is True
+def test_can_handle_real_workflow():
+    from workflows import Workflow, step
+    from workflows.events import StartEvent, StopEvent
+
+    class _RealWorkflow(Workflow):
+        @step
+        async def go(self, ev: StartEvent) -> StopEvent:
+            return StopEvent()
+
+    assert LlamaIndexAdapter().can_handle(_RealWorkflow()) is True
 
 
-def test_can_handle_rejects_plain_object():
+def test_can_handle_rejects_non_workflow():
+    # A duck-typed look-alike (has run / Workflow-shaped name) must NOT be
+    # claimed — only a real workflows.Workflow is.
+    assert LlamaIndexAdapter().can_handle(FakeWorkflow()) is False
     assert LlamaIndexAdapter().can_handle(object()) is False
 
 

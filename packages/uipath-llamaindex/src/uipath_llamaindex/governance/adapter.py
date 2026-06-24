@@ -22,8 +22,8 @@ is not wired here; a tool's result is governed at the next ``LLMChatStartEvent``
 where it is fed back to the model as input (analogous to how the OpenAI adapter
 handles its missing tool-args).
 
-Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the runtime
-wrapper layer in ``uipath-runtime`` and are intentionally not fired here.
+Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
+governance host and are intentionally not fired here.
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
 contributes only the LlamaIndex-specific implementation and self-registers it
@@ -43,8 +43,8 @@ import logging
 from typing import Any, Dict, List
 from uuid import uuid4
 
-from llama_index.core.instrumentation import (
-    get_dispatcher,  # type: ignore[attr-defined]
+from llama_index.core.instrumentation import (  # type: ignore[attr-defined]
+    get_dispatcher,
 )
 from llama_index.core.instrumentation.event_handlers.base import (  # type: ignore[attr-defined]
     BaseEventHandler,
@@ -77,24 +77,12 @@ class LlamaIndexAdapter(BaseAdapter):
         return "LlamaIndex"
 
     def can_handle(self, agent: Any) -> bool:
-        """Return True if this looks like a LlamaIndex workflow/agent."""
+        """Return True only for a LlamaIndex ``Workflow`` (incl. agent workflows)."""
         try:
             from workflows import Workflow
-
-            if isinstance(agent, Workflow):
-                return True
         except ImportError:
-            pass
-
-        # Duck-typed fallback: a workflow/agent exposes ``run`` and a workflow
-        # step surface (``_get_steps`` / ``steps``) or a Workflow-shaped name.
-        if hasattr(agent, "run") and (
-            hasattr(agent, "_get_steps")
-            or hasattr(agent, "steps")
-            or type(agent).__name__.endswith(("Workflow", "Agent"))
-        ):
-            return True
-        return False
+            return False
+        return isinstance(agent, Workflow)
 
     def attach(
         self,

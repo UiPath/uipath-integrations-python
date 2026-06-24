@@ -20,14 +20,13 @@ LlmAgent)`` checks in output-schema / graph resolution, since ``LlmAgent``
 is a Pydantic model.
 
 Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are intentionally
-*not* fired from here — they are owned by the runtime wrapper layer in
-``uipath-runtime`` (``GovernanceRuntime.execute`` / ``.stream``). Firing
-them here too would duplicate every boundary evaluation.
+*not* fired from here — they are owned by the governance host. Firing them
+here too would duplicate every boundary evaluation.
 
 Contracts and the evaluator protocol come from ``uipath-core``; this
-package contributes only the ADK-specific implementation and
-self-registers it with the global adapter registry when
-``uipath_google_adk.governance`` is imported.
+package contributes only the ADK-specific implementation and registers it
+with the adapter registry via the ``uipath.governance.adapters`` entry
+point.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException`
 on DENY) are owned by the evaluator itself. Each callback only extracts
@@ -146,22 +145,12 @@ class GoogleADKAdapter(BaseAdapter):
         return "GoogleADK"
 
     def can_handle(self, agent: Any) -> bool:
-        """Return True if this adapter knows how to hook into the agent."""
+        """Return True only for a Google ADK ``BaseAgent`` (incl. LlmAgent trees)."""
         try:
             from google.adk.agents import BaseAgent
-
-            if isinstance(agent, BaseAgent):
-                return True
         except ImportError:
-            pass
-
-        # Duck-typed fallback: an ADK agent exposes a name plus either the
-        # model-callback surface (LlmAgent) or a sub_agents container.
-        if hasattr(agent, "name") and (
-            hasattr(agent, _MODEL_BEFORE) or hasattr(agent, "sub_agents")
-        ):
-            return True
-        return False
+            return False
+        return isinstance(agent, BaseAgent)
 
     def attach(
         self,

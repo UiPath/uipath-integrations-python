@@ -110,16 +110,17 @@ def _make_callbacks(evaluator: FakeEvaluator) -> GovernanceCallbacks:
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_llm_agent():
-    assert GoogleADKAdapter().can_handle(FakeLlmAgent()) is True
+def test_can_handle_real_agent():
+    from google.adk.agents import LlmAgent
+
+    assert GoogleADKAdapter().can_handle(LlmAgent(name="t")) is True
 
 
-def test_can_handle_container_agent():
-    container = FakeContainerAgent("root", [FakeLlmAgent()])
-    assert GoogleADKAdapter().can_handle(container) is True
-
-
-def test_can_handle_rejects_plain_object():
+def test_can_handle_rejects_non_adk_agent():
+    # Duck-typed look-alikes (name + model-callback / sub_agents) must NOT be
+    # claimed — only a real google.adk BaseAgent is.
+    assert GoogleADKAdapter().can_handle(FakeLlmAgent()) is False
+    assert GoogleADKAdapter().can_handle(FakeContainerAgent("root", [FakeLlmAgent()])) is False
     assert GoogleADKAdapter().can_handle(object()) is False
 
 

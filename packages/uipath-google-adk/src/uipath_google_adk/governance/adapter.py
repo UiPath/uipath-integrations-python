@@ -49,8 +49,7 @@ from uipath.core.governance.exceptions import GovernanceBlockException
 logger = logging.getLogger(__name__)
 
 # Cap on the text blob passed to BEFORE_MODEL / AFTER_MODEL governance
-# evaluation. Sized to match the runtime side (``_GOVERNANCE_TEXT_CAP``
-# in ``uipath.runtime.governance.wrapper``) and the LangChain adapter so
+# evaluation. Sized to match the governance host and the other adapters so
 # scan-time budgets are consistent across hooks. A long conversation
 # history is governed at the LLM layer by scanning only the latest
 # request content, not the full prompt — see

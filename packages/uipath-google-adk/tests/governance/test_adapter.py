@@ -1,10 +1,10 @@
 """Unit tests for the Google ADK governance adapter.
 
-These tests deliberately avoid importing ``google.adk`` — the adapter
-duck-types every Google type (it only hard-imports ``uipath.core``), so
-lightweight fakes for ``Part`` / ``Content`` / ``LlmRequest`` /
-``LlmResponse`` / tool / agent exercise the real code paths without the
-heavy ADK dependency.
+``can_handle`` is tested against a real ``google.adk`` ``LlmAgent`` (the
+adapter detects agents with ``isinstance(..., BaseAgent)``). The remaining
+tests duck-type the ADK payloads — lightweight fakes for ``Part`` /
+``Content`` / ``LlmRequest`` / ``LlmResponse`` / tool / agent — so the
+callback code paths are exercised without driving the heavy ADK runtime.
 """
 
 from __future__ import annotations

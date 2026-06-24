@@ -27,9 +27,8 @@ governance host, so they are not fired here. The framework's
 ``AgentMiddleware`` slot is therefore left untouched.
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the Agent-Framework-specific implementation and self-registers
-it with the global adapter registry when
-``uipath_agent_framework.governance`` is imported.
+contributes only the Agent-Framework-specific implementation and registers it
+with the adapter registry via the ``uipath.governance.adapters`` entry point.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator. Each middleware only extracts the relevant

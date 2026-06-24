@@ -1,39 +1,7 @@
 # LLMs and Embeddings
 
-UiPath provides pre-configured LLM and embedding classes for several providers (OpenAI via `UiPathOpenAI`, Anthropic on AWS Bedrock via `UiPathChatBedrockConverse`, Google Vertex AI via `UiPathVertex`, and more), plus embeddings via `UiPathOpenAIEmbedding`. These handle authentication, routing, and configuration automatically, allowing you to focus on building your agents. You do not need to add API keys from OpenAI, AWS, or Google, usage of these models will consume `Agent Units` on your account.
-
-## Available models
-
-LLM models are served through the UiPath LLM Gateway and are subject to [AI Trust Layer](https://docs.uipath.com/automation-cloud/automation-cloud/latest/admin-guide/about-ai-trust-layer) policies, so the exact set of models available to you depends on your tenant configuration. List the models you can use with the `uipath` CLI:
-
-```console
-$ uipath list-models
-                                   Available LLM Models
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
-┃ AwsBedrock                               ┃ OpenAi                  ┃ VertexAi         ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
-│ anthropic.claude-haiku-4-5-20251001-v1:0 │ gpt-4.1-2025-04-14      │ gemini-2.5-flash │
-│ anthropic.claude-opus-4-7                │ gpt-4.1-mini-2025-04-14 │ gemini-2.5-pro   │
-│ ...                                      │ ...                     │ ...              │
-└──────────────────────────────────────────┴─────────────────────────┴──────────────────┘
-```
-
-Pick a model id from the relevant provider column and pass it (or the matching enum member) to the matching class:
-
-```python
-from uipath_llamaindex.llms import UiPathOpenAI
-from uipath_llamaindex.llms.bedrock import UiPathChatBedrockConverse
-from uipath_llamaindex.llms.vertex import UiPathVertex
-
-# OpenAI models
-llm = UiPathOpenAI(model="gpt-4.1-mini-2025-04-14")
-
-# AWS Bedrock (Anthropic) models
-llm = UiPathChatBedrockConverse(model="anthropic.claude-sonnet-4-5-20250929-v1:0")
-
-# Google Vertex AI (Gemini) models
-llm = UiPathVertex(model="gemini-2.5-flash")
-```
+UiPath provides pre-configured LLM and embedding classes that handle authentication, routing, and configuration automatically, allowing you to focus on building your agents.
+You do not need to add API keys from OpenAI, AWS, or Google, usage of these models will consume `Agent Units` on your account.
 
 ## UiPathOpenAI
 
@@ -41,7 +9,17 @@ The `UiPathOpenAI` class is a pre-configured Azure OpenAI client that routes req
 
 ### Available Models
 
-The OpenAI models from the `OpenAi` column of [`uipath list-models`](#available-models) can be used here, either as a model string or via the `OpenAIModel` enum.
+The following OpenAI models are available through the `OpenAIModel` enum:
+
+- `GPT_4_1_2025_04_14`
+- `GPT_4_1_MINI_2025_04_14`
+- `GPT_4_1_NANO_2025_04_14`
+- `GPT_4O_2024_05_13`
+- `GPT_4O_2024_08_06`
+- `GPT_4O_2024_11_20`
+- `GPT_4O_MINI_2024_07_18` (default)
+- `O3_MINI_2025_01_31`
+- `TEXT_DAVINCI_003`
 
 ### Basic Usage
 
@@ -165,7 +143,9 @@ from uipath_llamaindex.llms import BedrockModel
 llm = UiPathChatBedrock(model=BedrockModel.anthropic_claude_sonnet_4)
 ```
 
-The available models are the ones in the `AwsBedrock` column of [`uipath list-models`](#available-models).
+Currently, the following models can be used (this list can be updated in the future):
+
+- `anthropic.claude-3-7-sonnet-20250219-v1:0`, `anthropic.claude-sonnet-4-20250514-v1:0`, `anthropic.claude-sonnet-4-5-20250929-v1:0`, `anthropic.claude-haiku-4-5-20251001-v1:0`
 
 ## UiPathVertex
 
@@ -204,7 +184,9 @@ response = llm.chat(messages)
 print(response)
 ```
 
-The available models are the ones in the `VertexAi` column of [`uipath list-models`](#available-models).
+Currently, the following models can be used (this list can be updated in the future):
+
+- `gemini-2.0-flash-001`, `gemini-2.5-flash`, `gemini-2.5-pro`
 
 ## Integration with LlamaIndex
 

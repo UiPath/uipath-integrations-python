@@ -337,10 +337,9 @@ def _get_model_name(agent: Any) -> str | None:
     identifier as ``model_id`` on the client instance.
     """
     try:
-        client = agent.client
-        model = getattr(client, "model", None) or getattr(client, "model_id", None)
-        if isinstance(model, str):
-            return model
+        model_id = agent.client.model_id
+        if isinstance(model_id, str):
+            return model_id
     except AttributeError:
         pass
     return None

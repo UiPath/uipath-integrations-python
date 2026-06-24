@@ -22,10 +22,9 @@ the **original agent**. For a ``WorkflowAgent`` the inner agents reachable via
 ``workflow.executors[*]._agent`` are governed too, so a multi-agent app is
 covered end to end.
 
-Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are intentionally *not*
-fired from here — they are owned by the runtime wrapper layer in
-``uipath-runtime``. The framework's ``AgentMiddleware`` slot is therefore left
-untouched.
+Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
+governance host, so they are not fired here. The framework's
+``AgentMiddleware`` slot is therefore left untouched.
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
 contributes only the Agent-Framework-specific implementation and self-registers
@@ -79,22 +78,12 @@ class AgentFrameworkAdapter(BaseAdapter):
         return "AgentFramework"
 
     def can_handle(self, agent: Any) -> bool:
-        """Return True if this adapter knows how to hook into the agent."""
+        """Return True only for an ``agent_framework`` ``BaseAgent``."""
         try:
             from agent_framework import BaseAgent
-
-            if isinstance(agent, BaseAgent):
-                return True
         except ImportError:
-            pass
-
-        # Duck-typed fallback: an Agent-Framework agent exposes a middleware
-        # slot plus either a run method or a workflow graph.
-        if hasattr(agent, "middleware") and (
-            hasattr(agent, "run") or hasattr(agent, "workflow")
-        ):
-            return True
-        return False
+            return False
+        return isinstance(agent, BaseAgent)
 
     def attach(
         self,

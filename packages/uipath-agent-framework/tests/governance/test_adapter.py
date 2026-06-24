@@ -106,15 +106,17 @@ async def _noop_next() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_agent():
-    assert AgentFrameworkAdapter().can_handle(FakeAgent()) is True
+def test_can_handle_real_agent():
+    from agent_framework import BaseAgent
+
+    assert AgentFrameworkAdapter().can_handle(BaseAgent(name="t")) is True
 
 
-def test_can_handle_workflow_agent():
-    assert AgentFrameworkAdapter().can_handle(FakeWorkflowAgent([])) is True
-
-
-def test_can_handle_rejects_plain_object():
+def test_can_handle_rejects_non_agent():
+    # Duck-typed look-alikes (middleware + run/workflow) must NOT be claimed —
+    # only a real agent_framework BaseAgent is.
+    assert AgentFrameworkAdapter().can_handle(FakeAgent()) is False
+    assert AgentFrameworkAdapter().can_handle(FakeWorkflowAgent([])) is False
     assert AgentFrameworkAdapter().can_handle(object()) is False
 
 

@@ -26,9 +26,8 @@ Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
 governance host and are intentionally not fired here.
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the LlamaIndex-specific implementation and self-registers it
-with the global adapter registry when ``uipath_llamaindex.governance`` is
-imported.
+contributes only the LlamaIndex-specific implementation and registers it with
+the adapter registry via the ``uipath.governance.adapters`` entry point.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator. The handler only extracts payloads and calls

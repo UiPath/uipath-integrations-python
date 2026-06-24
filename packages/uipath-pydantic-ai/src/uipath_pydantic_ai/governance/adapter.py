@@ -24,9 +24,8 @@ Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
 governance host and are intentionally not fired here.
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the Pydantic-AI-specific implementation and self-registers it
-with the global adapter registry when ``uipath_pydantic_ai.governance`` is
-imported.
+contributes only the Pydantic-AI-specific implementation and registers it with
+the adapter registry via the ``uipath.governance.adapters`` entry point.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator. The wrapper only extracts payloads and calls
@@ -153,10 +152,14 @@ class GovernanceModel(WrapperModel):
         ) as stream:
             yield stream
         # After the caller has consumed the stream, the final response is
-        # assembled — govern it the same as the non-streaming path.
+        # assembled — govern it the same as the non-streaming path. A DENY
+        # decision must still abort the run, so the block exception propagates;
+        # any other governance error is logged and swallowed.
         try:
             self._callbacks.on_response(stream.get())
-        except Exception as e:  # noqa: BLE001 - never break on the after-stream check
+        except GovernanceBlockException:
+            raise
+        except Exception as e:  # noqa: BLE001 - a governance bug must not break the run
             logger.warning("after-stream governance check failed (continuing): %s", e)
 
 

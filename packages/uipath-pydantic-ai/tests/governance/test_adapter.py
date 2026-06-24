@@ -240,6 +240,31 @@ async def test_governance_model_request_brackets_call():
     assert ev.calls[1][1]["model_output"] == "Your balance is 1000."
 
 
+async def test_governance_model_request_stream_block_propagates():
+    # A DENY during the after-stream check must abort the run, exactly like the
+    # non-streaming request() path — it must not be swallowed by the catch-all.
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    cb = _make_callbacks(FakeEvaluator(block_on="tool_call"))
+    denied = ModelResponse(
+        parts=[ToolCallPart(tool_name="t", args={}, tool_call_id="c1")]
+    )
+
+    class FakeWrapped:
+        @asynccontextmanager
+        async def request_stream(self, *_a, **_k):
+            yield SimpleNamespace(get=lambda: denied)
+
+    gm = GovernanceModel.__new__(GovernanceModel)  # bypass WrapperModel init
+    gm.wrapped = FakeWrapped()  # type: ignore[attr-defined]
+    gm._callbacks = cb
+    messages = [ModelRequest(parts=[UserPromptPart(content="hi")])]
+    with pytest.raises(GovernanceBlockException):
+        async with gm.request_stream(messages, None, None) as stream:
+            assert stream is not None
+
+
 # --------------------------------------------------------------------------
 # helpers + enforcement
 # --------------------------------------------------------------------------

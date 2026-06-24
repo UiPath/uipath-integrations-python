@@ -97,7 +97,7 @@ class UiPathOpenAIChatClient(OpenAIChatClient):
         )
 
         super().__init__(
-            model=model,
+            model_id=model,
             async_client=async_client,
             **kwargs,
         )

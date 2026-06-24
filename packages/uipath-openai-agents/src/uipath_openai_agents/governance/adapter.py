@@ -31,9 +31,8 @@ boundary evaluation. (The SDK's per-agent ``on_start`` / ``on_end`` are
 pass-through-only here for that reason.)
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the OpenAI-Agents-specific implementation and self-registers
-it with the global adapter registry when
-``uipath_openai_agents.governance`` is imported.
+contributes only the OpenAI-Agents-specific implementation and registers it
+with the adapter registry via the ``uipath.governance.adapters`` entry point.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator itself. Each hook only extracts the relevant
@@ -57,11 +56,10 @@ from uipath.core.governance.exceptions import GovernanceBlockException
 logger = logging.getLogger(__name__)
 
 # Cap on the text blob passed to BEFORE_MODEL / AFTER_MODEL governance
-# evaluation. Sized to match the runtime side (``_GOVERNANCE_TEXT_CAP`` in
-# ``uipath.runtime.governance.wrapper``) and the other adapters so scan-time
-# budgets are consistent across hooks. A long conversation history is governed
-# at the LLM layer by scanning only the latest request content, not the full
-# prompt — see :func:`_latest_input_text`.
+# evaluation. Sized to match the governance host and the other adapters so
+# scan-time budgets are consistent across hooks. A long conversation history is
+# governed at the LLM layer by scanning only the latest request content, not the
+# full prompt — see :func:`_latest_input_text`.
 _BEFORE_MODEL_TEXT_CAP = 64000
 
 # Marks an agent we have already governed so a double ``attach`` is a no-op and
@@ -136,9 +134,8 @@ class OpenAIAgentsAdapter(BaseAdapter):
 def _iter_agents(root: Any) -> List[Any]:
     """Return every agent node reachable through the ``handoffs`` graph.
 
-    A node qualifies if it exposes the ``hooks`` slot (duck-typed so we don't
-    hard-require ``Agent`` to be importable in every path). Handoff targets may
-    be ``Agent`` instances or ``Handoff`` objects that carry the target on
+    A node qualifies if it exposes the ``hooks`` slot. Handoff targets may be
+    ``Agent`` instances or ``Handoff`` objects that carry the target on
     ``.agent``; both are followed so a multi-agent app is governed end to end.
     Cycles and pathological depth are bounded by an id-visited set and a hard
     cap.

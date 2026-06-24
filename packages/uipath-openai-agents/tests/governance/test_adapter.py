@@ -1,10 +1,11 @@
 """Unit tests for the OpenAI Agents governance adapter.
 
-These tests duck-type the OpenAI Agents payloads (response input/output
-items, tools) with lightweight fakes so the real code paths are exercised
-without a live LLM. ``GovernanceAgentHooks`` subclasses ``agents.AgentHooks``
-(the SDK type-checks ``agent.hooks``), so importing the adapter does require
-``openai-agents`` — but the agents under test are simple stand-ins.
+``can_handle`` is tested against a real ``agents.Agent``; everything else
+duck-types the OpenAI Agents payloads (response input/output items, tools)
+with lightweight fakes so the real code paths are exercised without a live
+LLM. ``GovernanceAgentHooks`` subclasses ``agents.AgentHooks`` (the SDK
+type-checks ``agent.hooks``), so importing the adapter requires
+``openai-agents`` either way.
 
 The package is configured with ``asyncio_mode = "auto"``, so ``async def``
 tests run without an explicit marker.

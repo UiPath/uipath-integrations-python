@@ -25,11 +25,10 @@ its callbacks; here the SDK type-checks the slot).
 when an agent already carries user hooks we *chain*: governance runs first,
 then the previously-installed hooks. ``detach`` restores the original.
 
-Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are intentionally *not*
-fired from here — they are owned by the runtime wrapper layer in
-``uipath-runtime`` (``GovernanceRuntime.execute`` / ``.stream``). Firing them
-here too would duplicate every boundary evaluation. (The SDK's per-agent
-``on_start`` / ``on_end`` are pass-through-only here for that reason.)
+Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
+governance host, so they are not fired here — that would duplicate every
+boundary evaluation. (The SDK's per-agent ``on_start`` / ``on_end`` are
+pass-through-only here for that reason.)
 
 Contracts and the evaluator protocol come from ``uipath-core``; this package
 contributes only the OpenAI-Agents-specific implementation and self-registers
@@ -82,22 +81,8 @@ class OpenAIAgentsAdapter(BaseAdapter):
         return "OpenAIAgents"
 
     def can_handle(self, agent: Any) -> bool:
-        """Return True if this adapter knows how to hook into the agent."""
-        try:
-            if isinstance(agent, Agent):
-                return True
-        except Exception:  # noqa: BLE001 - defensive; isinstance shouldn't raise
-            pass
-
-        # Duck-typed fallback: an OpenAI agent exposes a name, a hooks slot,
-        # and either a tools or handoffs collection.
-        if (
-            hasattr(agent, "name")
-            and hasattr(agent, "hooks")
-            and (hasattr(agent, "tools") or hasattr(agent, "handoffs"))
-        ):
-            return True
-        return False
+        """Return True only for an OpenAI Agents ``Agent``."""
+        return isinstance(agent, Agent)
 
     def attach(
         self,
@@ -304,7 +289,7 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
         await _delegate(self._inner, "on_tool_end", context, agent, tool, result)
 
     # ----- Pass-through boundaries ----------------------------------------
-    # BEFORE_AGENT / AFTER_AGENT are owned by the runtime wrapper; here we only
+    # BEFORE_AGENT / AFTER_AGENT are owned by the governance host; here we only
     # forward to any wrapped user hooks so their behaviour is preserved.
 
     async def on_start(self, context: Any, agent: Any) -> None:

@@ -126,11 +126,15 @@ def _make_hooks(evaluator: FakeEvaluator, inner: Any = None) -> GovernanceAgentH
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_agent():
-    assert OpenAIAgentsAdapter().can_handle(FakeAgent()) is True
+def test_can_handle_real_agent():
+    from agents import Agent
+
+    assert OpenAIAgentsAdapter().can_handle(Agent(name="t")) is True
 
 
-def test_can_handle_rejects_plain_object():
+def test_can_handle_rejects_non_agent():
+    # A duck-typed look-alike must NOT be claimed — only a real Agent is.
+    assert OpenAIAgentsAdapter().can_handle(FakeAgent()) is False
     assert OpenAIAgentsAdapter().can_handle(object()) is False
 
 

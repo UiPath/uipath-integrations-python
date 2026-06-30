@@ -1,7 +1,7 @@
-"""LlamaIndex adapter for UiPath governance.
+"""LlamaIndex governance event handler for UiPath.
 
 Provides governance for LlamaIndex agents/workflows. Unlike the ADK / OpenAI /
-Agent-Framework adapters — which install per-agent callbacks or middleware —
+Agent-Framework integrations — which install per-agent callbacks or middleware —
 LlamaIndex routes everything (LLM calls, tool calls) through its global
 **instrumentation dispatcher** (the same mechanism the package already uses for
 OpenInference tracing). So this adapter governs by registering a
@@ -13,9 +13,9 @@ event propagated from child dispatchers:
 - ``AgentToolCallEvent``  → TOOL_CALL     (tool name + arguments)
 
 The dispatcher is process-global, so registration is process-wide — which fits
-the coded-agent model (one workflow per process). :meth:`attach` therefore
-returns the ``agent`` unchanged (nothing is mutated on it); the wiring lives on
-the dispatcher. :meth:`detach` removes the handler.
+the coded-agent model (one workflow per process). :func:`install_governance`
+therefore returns the ``agent`` unchanged (nothing is mutated on it); the wiring
+lives on the dispatcher.
 
 LlamaIndex does **not** emit a tool-*end* instrumentation event, so AFTER_TOOL
 is not wired here; a tool's result is governed at the next ``LLMChatStartEvent``
@@ -25,9 +25,11 @@ handles its missing tool-args).
 Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
 governance host and are intentionally not fired here.
 
-Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the LlamaIndex-specific implementation and registers it with
-the adapter registry via the ``uipath.governance.adapters`` entry point.
+The evaluator protocol comes from ``uipath-core``; this package contributes
+only the LlamaIndex-specific wiring. Governance is installed by the runtime
+factory: passing an ``evaluator`` to ``new_runtime`` calls
+:func:`install_governance`, which registers the handler on the dispatcher. No
+adapter registry, no entry point, no import-time side effects.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator. The handler only extracts payloads and calls
@@ -54,7 +56,7 @@ from llama_index.core.instrumentation.events.llm import (
     LLMChatStartEvent,
 )
 from pydantic import PrivateAttr
-from uipath.core.adapters import BaseAdapter, EvaluatorProtocol
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.core.governance.exceptions import GovernanceBlockException
 
 logger = logging.getLogger(__name__)
@@ -64,57 +66,31 @@ logger = logging.getLogger(__name__)
 _BEFORE_MODEL_TEXT_CAP = 64000
 
 
-class LlamaIndexAdapter(BaseAdapter):
-    """Adapter for the LlamaIndex framework.
+def install_governance(
+    agent: Any,
+    evaluator: EvaluatorProtocol,
+    *,
+    agent_name: str,
+    session_id: str,
+) -> Any:
+    """Register the governance event handler on the root dispatcher.
 
-    Detects LlamaIndex workflows/agents and governs them by registering a
-    :class:`GovernanceEventHandler` on the root instrumentation dispatcher.
+    Returns the ``agent`` unchanged — LlamaIndex governance is wired on the
+    process-global instrumentation dispatcher, not on the agent object.
+    Idempotent: a second call is a no-op while a handler is already registered.
+
+    Called by :class:`UiPathLlamaIndexRuntimeFactory` when an ``evaluator``
+    is supplied to ``new_runtime``.
     """
-
-    @property
-    def name(self) -> str:
-        return "LlamaIndex"
-
-    def can_handle(self, agent: Any) -> bool:
-        """Return True only for a LlamaIndex ``Workflow`` (incl. agent workflows)."""
-        try:
-            from workflows import Workflow
-        except ImportError:
-            return False
-        return isinstance(agent, Workflow)
-
-    def attach(
-        self,
-        agent: Any,
-        agent_id: str,
-        session_id: str,
-        evaluator: EvaluatorProtocol,
-    ) -> Any:
-        """Register the governance event handler on the root dispatcher.
-
-        Returns the ``agent`` unchanged — LlamaIndex governance is wired on the
-        process-global dispatcher, not on the agent object. Idempotent: a
-        second attach is a no-op while a handler is already registered.
-        """
-        dispatcher = get_dispatcher()
-        if any(isinstance(h, GovernanceEventHandler) for h in dispatcher.event_handlers):
-            return agent  # idempotent — already governed
-        callbacks = GovernanceCallbacks(
-            evaluator=evaluator, agent_name=agent_id, session_id=session_id
-        )
-        dispatcher.add_event_handler(GovernanceEventHandler(callbacks=callbacks))
-        logger.debug("Registered governance event handler on LlamaIndex dispatcher")
-        return agent
-
-    def detach(self, governed: Any) -> Any:
-        """Remove the governance event handler from the root dispatcher."""
-        dispatcher = get_dispatcher()
-        dispatcher.event_handlers = [
-            h
-            for h in dispatcher.event_handlers
-            if not isinstance(h, GovernanceEventHandler)
-        ]
-        return governed
+    dispatcher = get_dispatcher()
+    if any(isinstance(h, GovernanceEventHandler) for h in dispatcher.event_handlers):
+        return agent  # idempotent — already governed
+    callbacks = GovernanceCallbacks(
+        evaluator=evaluator, agent_name=agent_name, session_id=session_id
+    )
+    dispatcher.add_event_handler(GovernanceEventHandler(callbacks=callbacks))
+    logger.debug("Registered governance event handler on LlamaIndex dispatcher")
+    return agent
 
 
 class GovernanceEventHandler(BaseEventHandler):
@@ -279,5 +255,5 @@ def _coerce_args(arguments: Any) -> Dict[str, Any]:
 __all__: List[str] = [
     "GovernanceCallbacks",
     "GovernanceEventHandler",
-    "LlamaIndexAdapter",
+    "install_governance",
 ]

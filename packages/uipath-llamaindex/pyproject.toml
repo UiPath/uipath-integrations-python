@@ -45,9 +45,6 @@ register = "uipath_llamaindex.middlewares:register_middleware"
 [project.entry-points."uipath.runtime.factories"]
 llamaindex = "uipath_llamaindex.runtime:register_runtime_factory"
 
-[project.entry-points."uipath.governance.adapters"]
-llamaindex = "uipath_llamaindex.governance:register_governance_adapter"
-
 [project.urls]
 Homepage = "https://uipath.com"
 Repository = "https://github.com/UiPath/uipath-integrations-python/"

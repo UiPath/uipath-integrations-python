@@ -1,4 +1,4 @@
-"""Unit tests for the LlamaIndex governance adapter.
+"""Unit tests for the LlamaIndex governance event handler.
 
 The adapter governs via the LlamaIndex instrumentation dispatcher, so these
 tests exercise the real event types (``LLMChatStartEvent`` etc.) routed
@@ -10,6 +10,7 @@ cleans up after itself via ``detach``.
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any, List
 
 import pytest
@@ -23,12 +24,12 @@ from llama_index.core.instrumentation.events.llm import (
 from llama_index.core.tools.types import ToolMetadata
 from uipath.core.governance.exceptions import GovernanceBlockException
 
-from uipath_llamaindex.governance.adapter import (
+from uipath_llamaindex.governance.event_handler import (
     _BEFORE_MODEL_TEXT_CAP,
     GovernanceCallbacks,
     GovernanceEventHandler,
-    LlamaIndexAdapter,
     _coerce_args,
+    install_governance,
 )
 
 # --------------------------------------------------------------------------
@@ -83,31 +84,7 @@ def _handler(ev: FakeEvaluator) -> GovernanceEventHandler:
 
 
 # --------------------------------------------------------------------------
-# can_handle
-# --------------------------------------------------------------------------
-
-
-def test_can_handle_real_workflow():
-    from workflows import Workflow, step
-    from workflows.events import StartEvent, StopEvent
-
-    class _RealWorkflow(Workflow):
-        @step
-        async def go(self, ev: StartEvent) -> StopEvent:
-            return StopEvent()
-
-    assert LlamaIndexAdapter().can_handle(_RealWorkflow()) is True
-
-
-def test_can_handle_rejects_non_workflow():
-    # A duck-typed look-alike (has run / Workflow-shaped name) must NOT be
-    # claimed — only a real workflows.Workflow is.
-    assert LlamaIndexAdapter().can_handle(FakeWorkflow()) is False
-    assert LlamaIndexAdapter().can_handle(object()) is False
-
-
-# --------------------------------------------------------------------------
-# attach / detach (real dispatcher)
+# install_governance (real dispatcher)
 # --------------------------------------------------------------------------
 
 
@@ -119,28 +96,81 @@ def _gov_handlers() -> list:
     ]
 
 
-def test_attach_registers_handler_then_detach_removes():
-    adapter = LlamaIndexAdapter()
+def _clear_gov_handlers() -> None:
+    d = get_dispatcher()
+    d.event_handlers = [
+        h for h in d.event_handlers if not isinstance(h, GovernanceEventHandler)
+    ]
+
+
+def test_install_governance_registers_handler():
     agent = FakeWorkflow()
     try:
-        returned = adapter.attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
+        returned = install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
         assert returned is agent
         assert len(_gov_handlers()) == 1
     finally:
-        adapter.detach(agent)
+        _clear_gov_handlers()
     assert _gov_handlers() == []
 
 
-def test_attach_is_idempotent():
-    adapter = LlamaIndexAdapter()
-    agent = FakeWorkflow()
+def test_install_governance_is_idempotent():
     ev = FakeEvaluator()
     try:
-        adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
-        adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
+        install_governance(FakeWorkflow(), ev, agent_name="x", session_id="s")
+        install_governance(FakeWorkflow(), ev, agent_name="x", session_id="s")
         assert len(_gov_handlers()) == 1
     finally:
-        adapter.detach(agent)
+        _clear_gov_handlers()
+
+
+# --------------------------------------------------------------------------
+# Factory wiring — the evaluator kwarg drives install_governance
+# --------------------------------------------------------------------------
+
+
+def _factory_without_init():
+    """A factory instance that skips __init__ (avoids config/IO)."""
+    from uipath_llamaindex.runtime.factory import UiPathLlamaIndexRuntimeFactory
+
+    f = UiPathLlamaIndexRuntimeFactory.__new__(UiPathLlamaIndexRuntimeFactory)
+    f.context = SimpleNamespace(command="run")  # read for debug_mode
+    return f
+
+
+def _stub_factory_runtime(monkeypatch, factory_mod):
+    """Stub the runtime constructions + storage so only the governance branch runs."""
+    monkeypatch.setattr(factory_mod, "UiPathLlamaIndexRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(factory_mod, "UiPathResumableRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(factory_mod, "UiPathResumeTriggerHandler", lambda *a, **k: None)
+
+    async def _no_storage(self):
+        return None
+
+    monkeypatch.setattr(factory_mod.UiPathLlamaIndexRuntimeFactory, "_get_storage", _no_storage)
+
+
+async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
+    from uipath_llamaindex.runtime import factory as factory_mod
+
+    _stub_factory_runtime(monkeypatch, factory_mod)
+    try:
+        await _factory_without_init()._create_runtime_instance(
+            workflow=FakeWorkflow(), runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
+        )
+        assert len(_gov_handlers()) == 1
+    finally:
+        _clear_gov_handlers()
+
+
+async def test_factory_skips_governance_without_evaluator(monkeypatch):
+    from uipath_llamaindex.runtime import factory as factory_mod
+
+    _stub_factory_runtime(monkeypatch, factory_mod)
+    await _factory_without_init()._create_runtime_instance(
+        workflow=FakeWorkflow(), runtime_id="r", entrypoint="e"
+    )
+    assert _gov_handlers() == []
 
 
 # --------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from openinference.instrumentation.llama_index import (
     LlamaIndexInstrumentor,
     get_current_span,
 )
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.core.tracing import UiPathSpanUtils, UiPathTraceManager
 from uipath.platform.resume_triggers import UiPathResumeTriggerHandler
 from uipath.runtime import (
@@ -19,6 +20,7 @@ from uipath.runtime import (
 from uipath.runtime.errors import UiPathErrorCategory
 from workflows import Workflow
 
+from uipath_llamaindex.governance import install_governance
 from uipath_llamaindex.runtime._telemetry import (
     ToolCallAttributeNormalizer,
 )
@@ -233,6 +235,7 @@ class UiPathLlamaIndexRuntimeFactory:
         workflow: Workflow,
         runtime_id: str,
         entrypoint: str,
+        evaluator: EvaluatorProtocol | None = None,
     ) -> UiPathRuntimeProtocol:
         """
         Create a runtime instance from a workflow.
@@ -241,10 +244,19 @@ class UiPathLlamaIndexRuntimeFactory:
             workflow: The workflow
             runtime_id: Unique identifier for the runtime instance
             entrypoint: Workflow entrypoint name
+            evaluator: When supplied, governance is installed on the
+                instrumentation dispatcher via :func:`install_governance`.
 
         Returns:
             Configured runtime instance
         """
+        if evaluator is not None:
+            install_governance(
+                workflow,
+                evaluator,
+                agent_name=entrypoint,
+                session_id=runtime_id,
+            )
 
         storage = await self._get_storage()
 
@@ -274,6 +286,9 @@ class UiPathLlamaIndexRuntimeFactory:
         Args:
             entrypoint: Workflow name from llama_index.json
             runtime_id: Unique identifier for the runtime instance
+            **kwargs: Forwarded factory kwargs. Recognized: ``evaluator``
+                (``EvaluatorProtocol``) — when present, governance is installed
+                on the dispatcher via :func:`install_governance`.
 
         Returns:
             Configured runtime instance with workflow
@@ -284,6 +299,7 @@ class UiPathLlamaIndexRuntimeFactory:
             workflow=workflow,
             runtime_id=runtime_id,
             entrypoint=entrypoint,
+            evaluator=kwargs.get("evaluator"),
         )
 
     async def dispose(self) -> None:

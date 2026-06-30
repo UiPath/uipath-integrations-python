@@ -30,9 +30,12 @@ governance host, so they are not fired here — that would duplicate every
 boundary evaluation. (The SDK's per-agent ``on_start`` / ``on_end`` are
 pass-through-only here for that reason.)
 
-Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the OpenAI-Agents-specific implementation and registers it
-with the adapter registry via the ``uipath.governance.adapters`` entry point.
+The evaluator protocol comes from ``uipath-core``; this package contributes
+only the OpenAI-Agents-specific wiring. Governance is installed by the runtime
+factory: passing an ``evaluator`` to
+:class:`UiPathOpenAIAgentRuntimeFactory.new_runtime` calls
+:func:`install_governance` on the resolved agent. No adapter registry, no
+entry point, no import-time side effects.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator itself. Each hook only extracts the relevant
@@ -50,7 +53,7 @@ from typing import Any, Dict, List
 from uuid import uuid4
 
 from agents import Agent, AgentHooks
-from uipath.core.adapters import BaseAdapter, EvaluatorProtocol
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.core.governance.exceptions import GovernanceBlockException
 
 logger = logging.getLogger(__name__)
@@ -62,73 +65,46 @@ logger = logging.getLogger(__name__)
 # full prompt — see :func:`_latest_input_text`.
 _BEFORE_MODEL_TEXT_CAP = 64000
 
-# Marks an agent we have already governed so a double ``attach`` is a no-op and
-# ``detach`` can restore the hooks slot to whatever was there before.
-_PREV_HOOKS_ATTR = "_uipath_governance_prev_hooks"
 
+def install_governance(
+    agent: Agent,
+    evaluator: EvaluatorProtocol,
+    *,
+    agent_name: str,
+    session_id: str,
+) -> Agent:
+    """Install governance hooks on the agent graph (mutated in place).
 
-class OpenAIAgentsAdapter(BaseAdapter):
-    """Adapter for the OpenAI Agents SDK.
+    Walks every agent reachable through ``handoffs`` and installs a
+    :class:`GovernanceAgentHooks` on each one's ``hooks`` slot, chaining to any
+    pre-existing hooks. Returns the original ``agent`` — the ``Runner`` already
+    holds this reference, so in-place mutation is what wires governance into
+    execution. Idempotent: an already-governed agent is left untouched.
 
-    Detects ``agents.Agent`` instances and installs governance hooks on every
-    agent reachable through the ``handoffs`` graph.
+    Called by :class:`UiPathOpenAIAgentRuntimeFactory` when an ``evaluator``
+    is supplied to ``new_runtime``.
     """
-
-    @property
-    def name(self) -> str:
-        return "OpenAIAgents"
-
-    def can_handle(self, agent: Any) -> bool:
-        """Return True only for an OpenAI Agents ``Agent``."""
-        return isinstance(agent, Agent)
-
-    def attach(
-        self,
-        agent: Any,
-        agent_id: str,
-        session_id: str,
-        evaluator: EvaluatorProtocol,
-    ) -> Any:
-        """Install governance hooks on the agent graph (mutated in place).
-
-        Returns the original ``agent`` — the ``Runner`` already holds this
-        reference, so in-place mutation is what actually wires governance into
-        execution. A wrapping proxy would not reach the ``Runner`` and would
-        break the SDK's ``isinstance(agent, Agent)`` checks.
-        """
-        agents = _iter_agents(agent)
-        installed = 0
-        for node in agents:
-            if isinstance(getattr(node, "hooks", None), GovernanceAgentHooks):
-                continue  # idempotent — already governed
-            prev = getattr(node, "hooks", None)
-            hooks = GovernanceAgentHooks(
-                evaluator=evaluator,
-                agent_name=agent_id,
-                session_id=session_id,
-                inner=prev,
-            )
-            # Remember what was there so detach can restore it.
-            setattr(node, _PREV_HOOKS_ATTR, prev)
-            node.hooks = hooks
-            installed += 1
-        if not agents:
-            logger.warning(
-                "OpenAIAgentsAdapter found no Agent in %s — deep hooks will not fire",
-                type(agent).__name__,
-            )
-        else:
-            logger.debug("Installed governance hooks on %d OpenAI agent(s)", installed)
-        return agent
-
-    def detach(self, governed: Any) -> Any:
-        """Restore each agent's original ``hooks`` slot and return the graph."""
-        for node in _iter_agents(governed):
-            if isinstance(getattr(node, "hooks", None), GovernanceAgentHooks):
-                node.hooks = getattr(node, _PREV_HOOKS_ATTR, None)
-            if hasattr(node, _PREV_HOOKS_ATTR):
-                delattr(node, _PREV_HOOKS_ATTR)
-        return governed
+    agents = _iter_agents(agent)
+    installed = 0
+    for node in agents:
+        if isinstance(getattr(node, "hooks", None), GovernanceAgentHooks):
+            continue  # idempotent — already governed
+        prev = getattr(node, "hooks", None)
+        node.hooks = GovernanceAgentHooks(
+            evaluator=evaluator,
+            agent_name=agent_name,
+            session_id=session_id,
+            inner=prev,
+        )
+        installed += 1
+    if not agents:
+        logger.warning(
+            "install_governance found no Agent in %s — deep hooks will not fire",
+            type(agent).__name__,
+        )
+    else:
+        logger.debug("Installed governance hooks on %d OpenAI agent(s)", installed)
+    return agent
 
 
 def _iter_agents(root: Any) -> List[Any]:

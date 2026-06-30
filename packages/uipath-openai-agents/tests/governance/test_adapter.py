@@ -23,7 +23,7 @@ from uipath.core.governance.exceptions import GovernanceBlockException
 from uipath_openai_agents.governance.adapter import (
     _BEFORE_MODEL_TEXT_CAP,
     GovernanceAgentHooks,
-    OpenAIAgentsAdapter,
+    install_governance,
 )
 
 # --------------------------------------------------------------------------
@@ -123,34 +123,17 @@ def _make_hooks(evaluator: FakeEvaluator, inner: Any = None) -> GovernanceAgentH
 
 
 # --------------------------------------------------------------------------
-# can_handle
+# install_governance
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_real_agent():
-    from agents import Agent
-
-    assert OpenAIAgentsAdapter().can_handle(Agent(name="t")) is True
-
-
-def test_can_handle_rejects_non_agent():
-    # A duck-typed look-alike must NOT be claimed — only a real Agent is.
-    assert OpenAIAgentsAdapter().can_handle(FakeAgent()) is False
-    assert OpenAIAgentsAdapter().can_handle(object()) is False
-
-
-# --------------------------------------------------------------------------
-# attach / detach
-# --------------------------------------------------------------------------
-
-
-def test_attach_installs_on_all_agents_in_handoff_graph():
+def test_install_governance_installs_on_all_agents_in_handoff_graph():
     leaf_a = FakeAgent("a")
     leaf_b = FakeAgent("b")
     root = FakeAgent("root", handoffs=[leaf_a, leaf_b])
 
-    returned = OpenAIAgentsAdapter().attach(
-        root, agent_id="x", session_id="s", evaluator=FakeEvaluator()
+    returned = install_governance(
+        root, FakeEvaluator(), agent_name="x", session_id="s"
     )
 
     assert returned is root  # original returned, not a proxy
@@ -158,56 +141,35 @@ def test_attach_installs_on_all_agents_in_handoff_graph():
         assert isinstance(node.hooks, GovernanceAgentHooks)
 
 
-def test_attach_follows_handoff_wrapper_objects():
+def test_install_governance_follows_handoff_wrapper_objects():
     target = FakeAgent("target")
     handoff = SimpleNamespace(agent=target)  # Handoff-shaped wrapper
     root = FakeAgent("root", handoffs=[handoff])
-    OpenAIAgentsAdapter().attach(root, agent_id="x", session_id="s", evaluator=FakeEvaluator())
+    install_governance(root, FakeEvaluator(), agent_name="x", session_id="s")
     assert isinstance(target.hooks, GovernanceAgentHooks)
 
 
-def test_attach_is_idempotent():
+def test_install_governance_is_idempotent():
     agent = FakeAgent()
-    adapter = OpenAIAgentsAdapter()
     ev = FakeEvaluator()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
+    install_governance(agent, ev, agent_name="x", session_id="s")
     first = agent.hooks
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
+    install_governance(agent, ev, agent_name="x", session_id="s")
     assert agent.hooks is first  # not re-wrapped
 
 
-def test_attach_chains_existing_hooks():
+def test_install_governance_chains_existing_hooks():
     agent = FakeAgent()
     user_hooks = RecordingHooks()
     agent.hooks = user_hooks
-    OpenAIAgentsAdapter().attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
+    install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
     assert isinstance(agent.hooks, GovernanceAgentHooks)
     assert agent.hooks._inner is user_hooks
 
 
-def test_detach_restores_previous_hooks():
-    agent = FakeAgent()
-    user_hooks = RecordingHooks()
-    agent.hooks = user_hooks
-    adapter = OpenAIAgentsAdapter()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
-    adapter.detach(agent)
-    assert agent.hooks is user_hooks
-
-
-def test_detach_restores_none_when_no_prior_hooks():
-    agent = FakeAgent()
-    adapter = OpenAIAgentsAdapter()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
-    adapter.detach(agent)
-    assert agent.hooks is None
-
-
-def test_attach_warns_when_no_agent(caplog):
+def test_install_governance_warns_when_no_agent(caplog):
     with caplog.at_level(logging.WARNING):
-        OpenAIAgentsAdapter().attach(
-            object(), agent_id="x", session_id="s", evaluator=FakeEvaluator()
-        )
+        install_governance(object(), FakeEvaluator(), agent_name="x", session_id="s")  # type: ignore[arg-type]
     assert any("no Agent" in r.message for r in caplog.records)
 
 
@@ -377,3 +339,38 @@ async def test_hooks_return_none():
     assert await cb.on_llm_end(None, FakeAgent(), SimpleNamespace(output=[])) is None
     assert await cb.on_tool_start(None, FakeAgent(), FakeTool("t")) is None
     assert await cb.on_tool_end(None, FakeAgent(), FakeTool("t"), {}) is None
+
+
+# --------------------------------------------------------------------------
+# Factory wiring — the evaluator kwarg drives install_governance
+# --------------------------------------------------------------------------
+
+
+def _factory_without_init():
+    """A factory instance that skips __init__ (avoids SDK instrumentation)."""
+    from uipath_openai_agents.runtime.factory import UiPathOpenAIAgentRuntimeFactory
+
+    return UiPathOpenAIAgentRuntimeFactory.__new__(UiPathOpenAIAgentRuntimeFactory)
+
+
+async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
+    from uipath_openai_agents.runtime import factory as factory_mod
+
+    # Stub the runtime so we don't introspect a real Agent.
+    monkeypatch.setattr(factory_mod, "UiPathOpenAIAgentRuntime", lambda **kw: SimpleNamespace(**kw))
+    agent = FakeAgent()
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
+    )
+    assert isinstance(agent.hooks, GovernanceAgentHooks)
+
+
+async def test_factory_skips_governance_without_evaluator(monkeypatch):
+    from uipath_openai_agents.runtime import factory as factory_mod
+
+    monkeypatch.setattr(factory_mod, "UiPathOpenAIAgentRuntime", lambda **kw: SimpleNamespace(**kw))
+    agent = FakeAgent()
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e"
+    )
+    assert agent.hooks is None

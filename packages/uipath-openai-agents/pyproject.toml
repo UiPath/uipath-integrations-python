@@ -31,9 +31,6 @@ register = "uipath_openai_agents.middlewares:register_middleware"
 [project.entry-points."uipath.runtime.factories"]
 openai-agents = "uipath_openai_agents.runtime:register_runtime_factory"
 
-[project.entry-points."uipath.governance.adapters"]
-openai-agents = "uipath_openai_agents.governance:register_governance_adapter"
-
 [project.urls]
 Homepage = "https://uipath.com"
 Repository = "https://github.com/UiPath/uipath-integrations-python"

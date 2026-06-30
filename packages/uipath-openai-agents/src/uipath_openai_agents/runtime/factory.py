@@ -5,6 +5,7 @@ from typing import Any
 
 from agents import Agent
 from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.runtime import (
     UiPathRuntimeContext,
     UiPathRuntimeFactorySettings,
@@ -13,6 +14,7 @@ from uipath.runtime import (
 )
 from uipath.runtime.errors import UiPathErrorCategory
 
+from uipath_openai_agents.governance import install_governance
 from uipath_openai_agents.runtime.agent import OpenAiAgentLoader
 from uipath_openai_agents.runtime.config import OpenAiAgentsConfig
 from uipath_openai_agents.runtime.errors import (
@@ -201,6 +203,7 @@ class UiPathOpenAIAgentRuntimeFactory:
         agent: Agent,
         runtime_id: str,
         entrypoint: str,
+        evaluator: EvaluatorProtocol | None = None,
     ) -> UiPathRuntimeProtocol:
         """
         Create a runtime instance from an agent.
@@ -209,10 +212,20 @@ class UiPathOpenAIAgentRuntimeFactory:
             agent: The OpenAI Agent
             runtime_id: Unique identifier for the runtime instance
             entrypoint: Agent entrypoint name
+            evaluator: When supplied, governance hooks are installed on the
+                agent graph in place via :func:`install_governance`.
 
         Returns:
             Configured runtime instance
         """
+        if evaluator is not None:
+            install_governance(
+                agent,
+                evaluator,
+                agent_name=entrypoint,
+                session_id=runtime_id,
+            )
+
         return UiPathOpenAIAgentRuntime(
             agent=agent,
             runtime_id=runtime_id,
@@ -228,7 +241,9 @@ class UiPathOpenAIAgentRuntimeFactory:
         Args:
             entrypoint: Agent name from openai_agents.json
             runtime_id: Unique identifier for the runtime instance
-            **kwargs: Additional keyword arguments (unused)
+            **kwargs: Forwarded factory kwargs. Recognized: ``evaluator``
+                (``EvaluatorProtocol``) — when present, governance hooks are
+                installed on the agent via :func:`install_governance`.
 
         Returns:
             Configured runtime instance with agent
@@ -239,6 +254,7 @@ class UiPathOpenAIAgentRuntimeFactory:
             agent=agent,
             runtime_id=runtime_id,
             entrypoint=entrypoint,
+            evaluator=kwargs.get("evaluator"),
         )
 
     async def dispose(self) -> None:

@@ -333,6 +333,10 @@ class GovernanceCallbacks:
         return None
 
     # ----- Text extraction -------------------------------------------------
+    # Read LlmRequest/LlmResponse/content/parts defensively via getattr
+    # rather than isinstance on ADK's typed models: this keeps the adapter
+    # from hard-coupling to google-adk internal types that may shift, and
+    # lets the tests duck-type the payloads without a google-adk install.
 
     def _latest_request_text(self, llm_request: Any) -> str:
         """Extract text from the most-recent content in an ``LlmRequest``.

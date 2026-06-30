@@ -1,20 +1,21 @@
-"""Google ADK adapter for UiPath governance.
+"""Google ADK governance callbacks for UiPath.
 
 Provides governance for Google ADK agents (``google.adk.agents.LlmAgent``
-and any ``BaseAgent`` tree containing them). Unlike the LangChain adapter
+and any ``BaseAgent`` tree containing them). Unlike the LangChain integration
 — which wraps a ``Runnable`` and intercepts ``invoke`` / ``ainvoke`` — ADK
 agents are executed by a ``Runner`` that holds its **own** reference to
 the agent object. Replacing ``runtime.agent`` with a proxy would never
-reach the ``Runner``. So this adapter installs governance directly onto
-each ``LlmAgent``'s native callback attributes, mutating them in place:
+reach the ``Runner``. So :func:`install_governance` installs governance
+directly onto each ``LlmAgent``'s native callback attributes, mutating them
+in place:
 
 - ``before_model_callback``  → BEFORE_MODEL
 - ``after_model_callback``   → AFTER_MODEL
 - ``before_tool_callback``   → TOOL_CALL
 - ``after_tool_callback``    → AFTER_TOOL
 
-Because the mutation is in place, :meth:`GoogleADKAdapter.attach` returns
-the **original agent** (hooks installed) rather than a wrapping proxy.
+Because the mutation is in place, :func:`install_governance` returns the
+**original agent** (hooks installed) rather than a wrapping proxy.
 Returning a proxy here would also break ADK's own ``isinstance(agent,
 LlmAgent)`` checks in output-schema / graph resolution, since ``LlmAgent``
 is a Pydantic model.
@@ -23,10 +24,11 @@ Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are intentionally
 *not* fired from here — they are owned by the governance host. Firing them
 here too would duplicate every boundary evaluation.
 
-Contracts and the evaluator protocol come from ``uipath-core``; this
-package contributes only the ADK-specific implementation and registers it
-with the adapter registry via the ``uipath.governance.adapters`` entry
-point.
+The evaluator protocol comes from ``uipath-core``; this package contributes
+only the ADK-specific wiring. Governance is installed by the runtime
+factory: passing an ``evaluator`` to ``new_runtime`` calls
+:func:`install_governance` on the resolved agent. No adapter registry, no
+entry point, no import-time side effects.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException`
 on DENY) are owned by the evaluator itself. Each callback only extracts
@@ -43,7 +45,7 @@ import logging
 from typing import Any, Dict, List
 from uuid import uuid4
 
-from uipath.core.adapters import BaseAdapter, EvaluatorProtocol
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.core.governance.exceptions import GovernanceBlockException
 
 logger = logging.getLogger(__name__)
@@ -93,19 +95,6 @@ def _install_callback(agent: Any, attr: str, fn: Any) -> None:
     setattr(agent, attr, [fn, *handlers])
 
 
-def _remove_callbacks(agent: Any) -> None:
-    """Strip this adapter's governance callbacks from every managed slot."""
-    for attr in (_MODEL_BEFORE, _MODEL_AFTER, _TOOL_BEFORE, _TOOL_AFTER):
-        existing = getattr(agent, attr, None)
-        if existing is None:
-            continue
-        if isinstance(existing, list):
-            kept = [h for h in existing if not _is_governance_callable(h)]
-            setattr(agent, attr, kept or None)
-        elif _is_governance_callable(existing):
-            setattr(agent, attr, None)
-
-
 def _iter_llm_agents(root: Any) -> List[Any]:
     """Return every ``LlmAgent``-shaped node in the ``sub_agents`` tree.
 
@@ -132,67 +121,46 @@ def _iter_llm_agents(root: Any) -> List[Any]:
     return found
 
 
-class GoogleADKAdapter(BaseAdapter):
-    """Adapter for the Google ADK framework.
+def install_governance(
+    agent: Any,
+    evaluator: EvaluatorProtocol,
+    *,
+    agent_name: str,
+    session_id: str,
+) -> Any:
+    """Install governance callbacks on the agent tree (mutated in place).
 
-    Detects ``google.adk`` agents and installs governance callbacks on
-    every ``LlmAgent`` reachable through the ``sub_agents`` tree.
+    Walks every ``LlmAgent`` reachable through ``sub_agents`` and prepends
+    governance to each model/tool callback slot, preserving existing handlers.
+    Returns the original ``agent`` — the ``Runner`` already holds this
+    reference, so in-place mutation is what wires governance into execution.
+    Idempotent: a slot that already carries a governance callback is skipped.
+
+    Called by :class:`UiPathGoogleADKRuntimeFactory` when an ``evaluator``
+    is supplied to ``new_runtime``.
     """
-
-    @property
-    def name(self) -> str:
-        return "GoogleADK"
-
-    def can_handle(self, agent: Any) -> bool:
-        """Return True only for a Google ADK ``BaseAgent`` (incl. LlmAgent trees)."""
-        try:
-            from google.adk.agents import BaseAgent
-        except ImportError:
-            return False
-        return isinstance(agent, BaseAgent)
-
-    def attach(
-        self,
-        agent: Any,
-        agent_id: str,
-        session_id: str,
-        evaluator: EvaluatorProtocol,
-    ) -> Any:
-        """Install governance callbacks on the agent (mutated in place).
-
-        Returns the original ``agent`` — the ``Runner`` already holds this
-        reference, so in-place mutation is what actually wires governance
-        into execution. A wrapping proxy would not reach the ``Runner``
-        and would break ADK's ``isinstance(agent, LlmAgent)`` checks.
-        """
-        callbacks = GovernanceCallbacks(
-            evaluator=evaluator,
-            agent_name=agent_id,
-            session_id=session_id,
+    callbacks = GovernanceCallbacks(
+        evaluator=evaluator,
+        agent_name=agent_name,
+        session_id=session_id,
+    )
+    llm_agents = _iter_llm_agents(agent)
+    for node in llm_agents:
+        _install_callback(node, _MODEL_BEFORE, callbacks.before_model)
+        _install_callback(node, _MODEL_AFTER, callbacks.after_model)
+        _install_callback(node, _TOOL_BEFORE, callbacks.before_tool)
+        _install_callback(node, _TOOL_AFTER, callbacks.after_tool)
+    if not llm_agents:
+        logger.warning(
+            "install_governance found no LlmAgent in %s — deep hooks will not fire",
+            type(agent).__name__,
         )
-        llm_agents = _iter_llm_agents(agent)
-        for node in llm_agents:
-            _install_callback(node, _MODEL_BEFORE, callbacks.before_model)
-            _install_callback(node, _MODEL_AFTER, callbacks.after_model)
-            _install_callback(node, _TOOL_BEFORE, callbacks.before_tool)
-            _install_callback(node, _TOOL_AFTER, callbacks.after_tool)
-        if not llm_agents:
-            logger.warning(
-                "GoogleADKAdapter found no LlmAgent in %s — deep hooks will not fire",
-                type(agent).__name__,
-            )
-        else:
-            logger.debug(
-                "Installed governance callbacks on %d ADK LlmAgent(s)",
-                len(llm_agents),
-            )
-        return agent
-
-    def detach(self, governed: Any) -> Any:
-        """Remove governance callbacks from the agent tree and return it."""
-        for node in _iter_llm_agents(governed):
-            _remove_callbacks(node)
-        return governed
+    else:
+        logger.debug(
+            "Installed governance callbacks on %d ADK LlmAgent(s)",
+            len(llm_agents),
+        )
+    return agent
 
 
 class GovernanceCallbacks:

@@ -1,4 +1,4 @@
-"""Unit tests for the Google ADK governance adapter.
+"""Unit tests for the Google ADK governance callbacks.
 
 ``can_handle`` is tested against a real ``google.adk`` ``LlmAgent`` (the
 adapter detects agents with ``isinstance(..., BaseAgent)``). The remaining
@@ -16,10 +16,10 @@ from typing import Any, List
 import pytest
 from uipath.core.governance.exceptions import GovernanceBlockException
 
-from uipath_google_adk.governance.adapter import (
+from uipath_google_adk.governance.callbacks import (
     _BEFORE_MODEL_TEXT_CAP,
-    GoogleADKAdapter,
     GovernanceCallbacks,
+    install_governance,
 )
 
 # --------------------------------------------------------------------------
@@ -106,37 +106,16 @@ def _make_callbacks(evaluator: FakeEvaluator) -> GovernanceCallbacks:
 
 
 # --------------------------------------------------------------------------
-# can_handle
+# install_governance
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_real_agent():
-    from google.adk.agents import LlmAgent
-
-    assert GoogleADKAdapter().can_handle(LlmAgent(name="t")) is True
-
-
-def test_can_handle_rejects_non_adk_agent():
-    # Duck-typed look-alikes (name + model-callback / sub_agents) must NOT be
-    # claimed — only a real google.adk BaseAgent is.
-    assert GoogleADKAdapter().can_handle(FakeLlmAgent()) is False
-    assert GoogleADKAdapter().can_handle(FakeContainerAgent("root", [FakeLlmAgent()])) is False
-    assert GoogleADKAdapter().can_handle(object()) is False
-
-
-# --------------------------------------------------------------------------
-# attach / detach
-# --------------------------------------------------------------------------
-
-
-def test_attach_installs_on_all_llm_agents_in_tree():
+def test_install_governance_installs_on_all_llm_agents_in_tree():
     leaf_a = FakeLlmAgent("a")
     leaf_b = FakeLlmAgent("b")
     root = FakeContainerAgent("root", [leaf_a, leaf_b])
 
-    returned = GoogleADKAdapter().attach(
-        root, agent_id="x", session_id="s", evaluator=FakeEvaluator()
-    )
+    returned = install_governance(root, FakeEvaluator(), agent_name="x", session_id="s")
 
     assert returned is root  # original returned, not a proxy
     for leaf in (leaf_a, leaf_b):
@@ -146,24 +125,21 @@ def test_attach_installs_on_all_llm_agents_in_tree():
         assert leaf.after_tool_callback
 
 
-def test_attach_is_idempotent():
+def test_install_governance_is_idempotent():
     agent = FakeLlmAgent()
-    adapter = GoogleADKAdapter()
     ev = FakeEvaluator()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
+    install_governance(agent, ev, agent_name="x", session_id="s")
+    install_governance(agent, ev, agent_name="x", session_id="s")
     assert len(agent.before_model_callback) == 1
 
 
-def test_attach_preserves_existing_callback_and_runs_governance_first():
+def test_install_governance_preserves_existing_callback_and_runs_first():
     def user_cb(*_a, **_k):
         return None
 
     agent = FakeLlmAgent()
     agent.before_model_callback = user_cb
-    GoogleADKAdapter().attach(
-        agent, agent_id="x", session_id="s", evaluator=FakeEvaluator()
-    )
+    install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
     cbs = agent.before_model_callback
     assert isinstance(cbs, list) and len(cbs) == 2
     # governance prepended → runs first
@@ -171,27 +147,74 @@ def test_attach_preserves_existing_callback_and_runs_governance_first():
     assert cbs[1] is user_cb
 
 
-def test_detach_removes_governance_callbacks():
-    def user_cb(*_a, **_k):
-        return None
-
-    agent = FakeLlmAgent()
-    agent.after_tool_callback = user_cb
-    adapter = GoogleADKAdapter()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
-    adapter.detach(agent)
-    assert agent.before_model_callback is None
-    # unrelated user callback survives
-    assert agent.after_tool_callback == [user_cb]
-
-
-def test_attach_warns_when_no_llm_agent(caplog):
+def test_install_governance_warns_when_no_llm_agent(caplog):
     container = FakeContainerAgent("root", [])
     with caplog.at_level(logging.WARNING):
-        GoogleADKAdapter().attach(
-            container, agent_id="x", session_id="s", evaluator=FakeEvaluator()
-        )
+        install_governance(container, FakeEvaluator(), agent_name="x", session_id="s")
     assert any("no LlmAgent" in r.message for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# Factory wiring — the evaluator kwarg drives install_governance
+# --------------------------------------------------------------------------
+
+
+class _FakeRuntime:
+    APP_NAME = "app"
+    USER_ID = "user"
+
+    def __init__(self, **kw: Any) -> None:
+        pass
+
+
+class _FakeSessionService:
+    async def get_session(self, **kw: Any) -> Any:
+        return None
+
+    async def create_session(self, **kw: Any) -> Any:
+        return object()
+
+
+def _factory_without_init():
+    """A factory instance that skips __init__ (avoids config/IO)."""
+    from uipath_google_adk.runtime.factory import UiPathGoogleADKRuntimeFactory
+
+    return UiPathGoogleADKRuntimeFactory.__new__(UiPathGoogleADKRuntimeFactory)
+
+
+def _stub_factory_runtime(monkeypatch, factory_mod):
+    """Stub Runner + runtime + session service so only the governance branch runs."""
+    monkeypatch.setattr(factory_mod, "Runner", lambda **kw: None)
+    monkeypatch.setattr(factory_mod, "UiPathGoogleADKRuntime", _FakeRuntime)
+
+    async def _session_service(self):
+        return _FakeSessionService()
+
+    monkeypatch.setattr(
+        factory_mod.UiPathGoogleADKRuntimeFactory, "_get_session_service", _session_service
+    )
+
+
+async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
+    from uipath_google_adk.runtime import factory as factory_mod
+
+    _stub_factory_runtime(monkeypatch, factory_mod)
+    agent = FakeLlmAgent()
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
+    )
+    assert isinstance(agent.before_model_callback, list)
+
+
+async def test_factory_skips_governance_without_evaluator(monkeypatch):
+    from uipath_google_adk.runtime import factory as factory_mod
+
+    _stub_factory_runtime(monkeypatch, factory_mod)
+    agent = FakeLlmAgent()
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e"
+    )
+    assert agent.before_model_callback is None
 
 
 # --------------------------------------------------------------------------

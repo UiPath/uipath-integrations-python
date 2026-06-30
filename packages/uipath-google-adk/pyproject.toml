@@ -31,9 +31,6 @@ register = "uipath_google_adk.middlewares:register_middleware"
 [project.entry-points."uipath.runtime.factories"]
 google-adk = "uipath_google_adk.runtime:register_runtime_factory"
 
-[project.entry-points."uipath.governance.adapters"]
-google-adk = "uipath_google_adk.governance:register_governance_adapter"
-
 [project.urls]
 Homepage = "https://uipath.com"
 Repository = "https://github.com/UiPath/uipath-integrations-python"

@@ -41,6 +41,13 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, List
 from uuid import uuid4
 
+from pydantic_ai.messages import (
+    BuiltinToolCallPart,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
@@ -199,11 +206,8 @@ class GovernanceCallbacks:
         parts = getattr(latest, "parts", None) or []
         self._before_model(self._parts_input_text(parts))
         for part in parts:
-            if _part_kind(part) == "tool-return":
-                self._after_tool(
-                    getattr(part, "tool_name", None) or "unknown",
-                    getattr(part, "content", None),
-                )
+            if isinstance(part, ToolReturnPart):
+                self._after_tool(part.tool_name or "unknown", part.content)
 
     # ----- after the model call ---------------------------------------
 
@@ -212,11 +216,8 @@ class GovernanceCallbacks:
         parts = getattr(response, "parts", None) or []
         self._after_model(self._response_text(parts))
         for part in parts:
-            if _part_kind(part) in ("tool-call", "builtin-tool-call"):
-                self._tool_call(
-                    getattr(part, "tool_name", None) or "unknown",
-                    getattr(part, "args", None),
-                )
+            if isinstance(part, (ToolCallPart, BuiltinToolCallPart)):
+                self._tool_call(part.tool_name or "unknown", part.args)
 
     # ----- individual evaluate_* wrappers (block-propagate, else swallow) --
 
@@ -299,11 +300,10 @@ class GovernanceCallbacks:
         """
         collected: List[str] = []
         for part in parts:
-            kind = _part_kind(part)
-            if kind == "user-prompt":
-                collected.append(_content_text(getattr(part, "content", None)))
-            elif kind == "tool-return":
-                collected.append(_stringify(getattr(part, "content", None)))
+            if isinstance(part, UserPromptPart):
+                collected.append(_content_text(part.content))
+            elif isinstance(part, ToolReturnPart):
+                collected.append(_stringify(part.content))
         return "\n".join(p for p in collected if p)[:_BEFORE_MODEL_TEXT_CAP]
 
     @classmethod
@@ -311,22 +311,14 @@ class GovernanceCallbacks:
         """Join ``TextPart`` content from a model response's parts."""
         collected: List[str] = []
         for part in parts:
-            if _part_kind(part) == "text":
-                text = getattr(part, "content", None)
-                if isinstance(text, str) and text:
-                    collected.append(text)
+            if isinstance(part, TextPart) and part.content:
+                collected.append(part.content)
         return "\n".join(collected)[:_BEFORE_MODEL_TEXT_CAP]
 
 
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
-
-
-def _part_kind(part: Any) -> str:
-    """Return a message part's discriminator (``part_kind``), or ``""``."""
-    kind = getattr(part, "part_kind", None)
-    return kind if isinstance(kind, str) else ""
 
 
 def _content_text(content: Any) -> str:

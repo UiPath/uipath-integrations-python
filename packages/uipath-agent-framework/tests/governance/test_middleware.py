@@ -1,4 +1,4 @@
-"""Unit tests for the Microsoft Agent Framework governance adapter.
+"""Unit tests for the Microsoft Agent Framework governance middleware.
 
 The middleware classes subclass ``agent_framework`` base classes (the
 framework routes middleware by ``isinstance``), so importing the adapter
@@ -18,12 +18,12 @@ from typing import Any, List
 import pytest
 from uipath.core.governance.exceptions import GovernanceBlockException
 
-from uipath_agent_framework.governance.adapter import (
+from uipath_agent_framework.governance.middleware import (
     _BEFORE_MODEL_TEXT_CAP,
-    AgentFrameworkAdapter,
     GovernanceCallbacks,
     GovernanceChatMiddleware,
     GovernanceFunctionMiddleware,
+    install_governance,
 )
 
 # --------------------------------------------------------------------------
@@ -102,83 +102,98 @@ async def _noop_next() -> None:
 
 
 # --------------------------------------------------------------------------
-# can_handle
+# install_governance
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_real_agent():
-    from agent_framework import BaseAgent
-
-    assert AgentFrameworkAdapter().can_handle(BaseAgent(name="t")) is True
-
-
-def test_can_handle_rejects_non_agent():
-    # Duck-typed look-alikes (middleware + run/workflow) must NOT be claimed —
-    # only a real agent_framework BaseAgent is.
-    assert AgentFrameworkAdapter().can_handle(FakeAgent()) is False
-    assert AgentFrameworkAdapter().can_handle(FakeWorkflowAgent([])) is False
-    assert AgentFrameworkAdapter().can_handle(object()) is False
-
-
-# --------------------------------------------------------------------------
-# attach / detach
-# --------------------------------------------------------------------------
-
-
-def test_attach_appends_both_middleware():
+def test_install_governance_appends_both_middleware():
     agent = FakeAgent()
-    returned = AgentFrameworkAdapter().attach(
-        agent, agent_id="x", session_id="s", evaluator=FakeEvaluator()
-    )
+    returned = install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
     assert returned is agent
     kinds = [type(m) for m in agent.middleware]
     assert GovernanceChatMiddleware in kinds
     assert GovernanceFunctionMiddleware in kinds
 
 
-def test_attach_installs_on_workflow_inner_agents():
+def test_install_governance_installs_on_workflow_inner_agents():
     a, b = FakeAgent("a"), FakeAgent("b")
     root = FakeWorkflowAgent([a, b])
-    AgentFrameworkAdapter().attach(root, agent_id="x", session_id="s", evaluator=FakeEvaluator())
+    install_governance(root, FakeEvaluator(), agent_name="x", session_id="s")
     for node in (a, b):
         assert any(isinstance(m, GovernanceChatMiddleware) for m in node.middleware)
 
 
-def test_attach_is_idempotent():
+def test_install_governance_is_idempotent():
     agent = FakeAgent()
-    adapter = AgentFrameworkAdapter()
     ev = FakeEvaluator()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
+    install_governance(agent, ev, agent_name="x", session_id="s")
+    install_governance(agent, ev, agent_name="x", session_id="s")
     assert sum(isinstance(m, GovernanceChatMiddleware) for m in agent.middleware) == 1
 
 
-def test_attach_preserves_existing_middleware_and_runs_governance_first():
+def test_install_governance_preserves_existing_middleware_and_runs_first():
     user_mw = object()
     agent = FakeAgent()
     agent.middleware = [user_mw]
-    AgentFrameworkAdapter().attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
+    install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
     # governance prepended → runs first; user middleware preserved at the end
     assert isinstance(agent.middleware[0], GovernanceChatMiddleware)
     assert agent.middleware[-1] is user_mw
 
 
-def test_detach_removes_governance_middleware():
-    user_mw = object()
-    agent = FakeAgent()
-    agent.middleware = [user_mw]
-    adapter = AgentFrameworkAdapter()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
-    adapter.detach(agent)
-    assert agent.middleware == [user_mw]
-
-
-def test_attach_warns_when_no_agent(caplog):
+def test_install_governance_warns_when_no_agent(caplog):
     with caplog.at_level(logging.WARNING):
-        AgentFrameworkAdapter().attach(
-            object(), agent_id="x", session_id="s", evaluator=FakeEvaluator()
-        )
+        install_governance(object(), FakeEvaluator(), agent_name="x", session_id="s")
     assert any("no agent" in r.message for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# Factory wiring — the evaluator kwarg drives install_governance
+# --------------------------------------------------------------------------
+
+
+def _factory_without_init():
+    """A factory instance that skips __init__ (avoids config/IO)."""
+    from uipath_agent_framework.runtime.factory import (
+        UiPathAgentFrameworkRuntimeFactory,
+    )
+
+    return UiPathAgentFrameworkRuntimeFactory.__new__(UiPathAgentFrameworkRuntimeFactory)
+
+
+def _stub_factory_runtime(monkeypatch, factory_mod):
+    """Stub storage + runtime constructions so only the governance branch runs."""
+    monkeypatch.setattr(factory_mod, "ScopedCheckpointStorage", lambda *a, **k: None)
+    monkeypatch.setattr(factory_mod, "UiPathAgentFrameworkRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(factory_mod, "UiPathResumableRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(factory_mod, "UiPathResumeTriggerHandler", lambda *a, **k: None)
+
+    async def _storage(self):
+        return SimpleNamespace(checkpoint_storage=object())
+
+    monkeypatch.setattr(factory_mod.UiPathAgentFrameworkRuntimeFactory, "_get_storage", _storage)
+
+
+async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
+    from uipath_agent_framework.runtime import factory as factory_mod
+
+    _stub_factory_runtime(monkeypatch, factory_mod)
+    agent = FakeAgent()
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
+    )
+    assert any(isinstance(m, GovernanceChatMiddleware) for m in agent.middleware)
+
+
+async def test_factory_skips_governance_without_evaluator(monkeypatch):
+    from uipath_agent_framework.runtime import factory as factory_mod
+
+    _stub_factory_runtime(monkeypatch, factory_mod)
+    agent = FakeAgent()
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e"
+    )
+    assert agent.middleware is None
 
 
 # --------------------------------------------------------------------------

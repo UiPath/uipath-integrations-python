@@ -1,12 +1,12 @@
-"""Microsoft Agent Framework adapter for UiPath governance.
+"""Microsoft Agent Framework governance middleware for UiPath.
 
 Provides governance for ``agent_framework`` agents (``Agent`` and
 ``WorkflowAgent`` graphs). The framework runs agents through a middleware
 pipeline that it rebuilds from ``agent.middleware`` on **every** ``run`` call
 ("Re-categorize self.middleware at runtime to support dynamic changes"). So,
-like the Google ADK and OpenAI Agents adapters — and unlike the LangChain
-adapter, which wraps the ``Runnable`` — this adapter installs governance by
-appending middleware to each agent's ``middleware`` list in place:
+like the Google ADK and OpenAI Agents integrations — and unlike the LangChain
+one, which wraps the ``Runnable`` — governance is installed by appending
+middleware to each agent's ``middleware`` list in place:
 
 - :class:`GovernanceChatMiddleware` (a ``ChatMiddleware``) brackets the LLM
   call → BEFORE_MODEL before ``call_next`` / AFTER_MODEL after it.
@@ -17,8 +17,8 @@ Both subclass the framework's middleware base classes because the framework's
 ``categorize_middleware`` sorts middleware into chat/function/agent pipelines
 by ``isinstance`` — a duck-typed object would be silently dropped.
 
-Because the mutation is in place, :meth:`AgentFrameworkAdapter.attach` returns
-the **original agent**. For a ``WorkflowAgent`` the inner agents reachable via
+Because the mutation is in place, :func:`install_governance` returns the
+**original agent**. For a ``WorkflowAgent`` the inner agents reachable via
 ``workflow.executors[*]._agent`` are governed too, so a multi-agent app is
 covered end to end.
 
@@ -26,9 +26,11 @@ Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
 governance host, so they are not fired here. The framework's
 ``AgentMiddleware`` slot is therefore left untouched.
 
-Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the Agent-Framework-specific implementation and registers it
-with the adapter registry via the ``uipath.governance.adapters`` entry point.
+The evaluator protocol comes from ``uipath-core``; this package contributes
+only the Agent-Framework-specific wiring. Governance is installed by the
+runtime factory: passing an ``evaluator`` to ``new_runtime`` calls
+:func:`install_governance` on the resolved agent. No adapter registry, no
+entry point, no import-time side effects.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator. Each middleware only extracts the relevant
@@ -51,7 +53,7 @@ from agent_framework._middleware import (
     FunctionInvocationContext,
     FunctionMiddleware,
 )
-from uipath.core.adapters import BaseAdapter, EvaluatorProtocol
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.core.governance.exceptions import GovernanceBlockException
 
 logger = logging.getLogger(__name__)
@@ -64,73 +66,48 @@ logger = logging.getLogger(__name__)
 _BEFORE_MODEL_TEXT_CAP = 64000
 
 
-class AgentFrameworkAdapter(BaseAdapter):
-    """Adapter for the Microsoft Agent Framework.
+def install_governance(
+    agent: Any,
+    evaluator: EvaluatorProtocol,
+    *,
+    agent_name: str,
+    session_id: str,
+) -> Any:
+    """Append governance middleware to the agent graph (mutated in place).
 
-    Detects ``agent_framework`` agents and appends governance middleware to
-    every agent reachable through a ``WorkflowAgent``'s executors (or the
-    single agent itself).
+    Returns the original ``agent`` — the framework rebuilds the middleware
+    pipeline from ``agent.middleware`` on each ``run``, so the in-place append
+    is what wires governance into execution. Idempotent: an already-governed
+    agent is skipped. For a ``WorkflowAgent`` the inner agents reachable via
+    ``workflow.executors[*]._agent`` are governed too.
+
+    Called by :class:`UiPathAgentFrameworkRuntimeFactory` when an ``evaluator``
+    is supplied to ``new_runtime``.
     """
-
-    @property
-    def name(self) -> str:
-        return "AgentFramework"
-
-    def can_handle(self, agent: Any) -> bool:
-        """Return True only for an ``agent_framework`` ``BaseAgent``."""
-        try:
-            from agent_framework import BaseAgent
-        except ImportError:
-            return False
-        return isinstance(agent, BaseAgent)
-
-    def attach(
-        self,
-        agent: Any,
-        agent_id: str,
-        session_id: str,
-        evaluator: EvaluatorProtocol,
-    ) -> Any:
-        """Append governance middleware to the agent graph (mutated in place).
-
-        Returns the original ``agent`` — the framework rebuilds the middleware
-        pipeline from ``agent.middleware`` on each ``run``, so the in-place
-        append is what wires governance into execution.
-        """
-        callbacks = GovernanceCallbacks(
-            evaluator=evaluator, agent_name=agent_id, session_id=session_id
+    callbacks = GovernanceCallbacks(
+        evaluator=evaluator, agent_name=agent_name, session_id=session_id
+    )
+    targets = _iter_agents(agent)
+    installed = 0
+    for node in targets:
+        existing = list(getattr(node, "middleware", None) or [])
+        if any(isinstance(m, _GOVERNANCE_MIDDLEWARE) for m in existing):
+            continue  # idempotent — already governed
+        # Governance runs first so it can BLOCK before user middleware.
+        node.middleware = [
+            GovernanceChatMiddleware(callbacks),
+            GovernanceFunctionMiddleware(callbacks),
+            *existing,
+        ]
+        installed += 1
+    if not targets:
+        logger.warning(
+            "install_governance found no agent in %s — hooks will not fire",
+            type(agent).__name__,
         )
-        targets = _iter_agents(agent)
-        installed = 0
-        for node in targets:
-            existing = list(getattr(node, "middleware", None) or [])
-            if any(isinstance(m, _GOVERNANCE_MIDDLEWARE) for m in existing):
-                continue  # idempotent — already governed
-            # Governance runs first so it can BLOCK before user middleware.
-            node.middleware = [
-                GovernanceChatMiddleware(callbacks),
-                GovernanceFunctionMiddleware(callbacks),
-                *existing,
-            ]
-            installed += 1
-        if not targets:
-            logger.warning(
-                "AgentFrameworkAdapter found no agent in %s — hooks will not fire",
-                type(agent).__name__,
-            )
-        else:
-            logger.debug("Installed governance middleware on %d agent(s)", installed)
-        return agent
-
-    def detach(self, governed: Any) -> Any:
-        """Strip governance middleware from each agent and return the graph."""
-        for node in _iter_agents(governed):
-            existing = getattr(node, "middleware", None)
-            if not existing:
-                continue
-            kept = [m for m in existing if not isinstance(m, _GOVERNANCE_MIDDLEWARE)]
-            node.middleware = kept or None
-        return governed
+    else:
+        logger.debug("Installed governance middleware on %d agent(s)", installed)
+    return agent
 
 
 def _iter_agents(root: Any) -> List[Any]:

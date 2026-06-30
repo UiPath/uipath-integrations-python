@@ -33,9 +33,6 @@ register = "uipath_agent_framework.middlewares:register_middleware"
 [project.entry-points."uipath.runtime.factories"]
 agent-framework = "uipath_agent_framework.runtime:register_runtime_factory"
 
-[project.entry-points."uipath.governance.adapters"]
-agent-framework = "uipath_agent_framework.governance:register_governance_adapter"
-
 [project.urls]
 Homepage = "https://uipath.com"
 Repository = "https://github.com/UiPath/uipath-integrations-python"

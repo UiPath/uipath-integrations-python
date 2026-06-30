@@ -1,4 +1,4 @@
-"""Pydantic AI adapter for UiPath governance.
+"""Pydantic AI governance model wrapper for UiPath.
 
 Pydantic AI has the thinnest hook surface of the supported frameworks — there
 is no per-agent callback or middleware system. But *everything* an agent does
@@ -17,15 +17,17 @@ that brackets every model call:
 Both the non-streaming ``request`` and the streaming ``request_stream`` paths
 are covered (the runtime uses ``agent.run`` and ``agent.iter`` respectively).
 
-Because the wrap is installed on ``agent.model`` in place, :meth:`attach`
-returns the **original agent**; :meth:`detach` restores the original model.
+Because the wrap is installed on ``agent.model`` in place,
+:func:`install_governance` returns the **original agent**.
 
 Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
 governance host and are intentionally not fired here.
 
-Contracts and the evaluator protocol come from ``uipath-core``; this package
-contributes only the Pydantic-AI-specific implementation and registers it with
-the adapter registry via the ``uipath.governance.adapters`` entry point.
+The evaluator protocol comes from ``uipath-core``; this package contributes
+only the Pydantic-AI-specific wiring. Governance is installed by the runtime
+factory: passing an ``evaluator`` to ``new_runtime`` calls
+:func:`install_governance` on the resolved agent. No adapter registry, no
+entry point, no import-time side effects.
 
 Audit emission and enforcement (raising :class:`GovernanceBlockException` on
 DENY) are owned by the evaluator. The wrapper only extracts payloads and calls
@@ -41,6 +43,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, List
 from uuid import uuid4
 
+from pydantic_ai import Agent
 from pydantic_ai.messages import (
     BuiltinToolCallPart,
     TextPart,
@@ -51,7 +54,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
-from uipath.core.adapters import BaseAdapter, EvaluatorProtocol
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.core.governance.exceptions import GovernanceBlockException
 
 logger = logging.getLogger(__name__)
@@ -60,69 +63,39 @@ logger = logging.getLogger(__name__)
 # evaluation. Sized to match the runtime side and the other adapters.
 _BEFORE_MODEL_TEXT_CAP = 64000
 
-# Attribute used to stash the original (unwrapped) model so detach can restore it.
-_ORIGINAL_MODEL_ATTR = "_uipath_governance_original_model"
 
+def install_governance(
+    agent: Agent,
+    evaluator: EvaluatorProtocol,
+    *,
+    agent_name: str,
+    session_id: str,
+) -> Agent:
+    """Wrap ``agent.model`` with a :class:`GovernanceModel` (mutated in place).
 
-class PydanticAIAdapter(BaseAdapter):
-    """Adapter for the Pydantic AI framework.
+    Returns the original ``agent``. Idempotent: an already-wrapped model is
+    left untouched. If the agent has no concrete ``Model`` bound (the model is
+    supplied per-run), there is nothing to wrap and a warning is logged.
 
-    Detects ``pydantic_ai.Agent`` instances and wraps their ``model`` with a
-    :class:`GovernanceModel`.
+    Called by :class:`UiPathPydanticAIRuntimeFactory` when an ``evaluator``
+    is supplied to ``new_runtime``.
     """
-
-    @property
-    def name(self) -> str:
-        return "PydanticAI"
-
-    def can_handle(self, agent: Any) -> bool:
-        """Return True only for a ``pydantic_ai.Agent``."""
-        try:
-            from pydantic_ai import Agent
-        except ImportError:
-            return False
-        return isinstance(agent, Agent)
-
-    def attach(
-        self,
-        agent: Any,
-        agent_id: str,
-        session_id: str,
-        evaluator: EvaluatorProtocol,
-    ) -> Any:
-        """Wrap ``agent.model`` with governance (mutated in place).
-
-        Returns the original ``agent``. If the agent has no concrete ``Model``
-        bound (the model is supplied per-run), there is nothing to wrap and a
-        warning is logged.
-        """
-        model = getattr(agent, "model", None)
-        if isinstance(model, GovernanceModel):
-            return agent  # idempotent — already governed
-        if not isinstance(model, Model):
-            logger.warning(
-                "PydanticAIAdapter: agent has no bound Model to wrap (got %s); "
-                "model-layer governance will not fire",
-                type(model).__name__,
-            )
-            return agent
-        callbacks = GovernanceCallbacks(
-            evaluator=evaluator, agent_name=agent_id, session_id=session_id
+    model = getattr(agent, "model", None)
+    if isinstance(model, GovernanceModel):
+        return agent  # idempotent — already governed
+    if not isinstance(model, Model):
+        logger.warning(
+            "install_governance: agent has no bound Model to wrap (got %s); "
+            "model-layer governance will not fire",
+            type(model).__name__,
         )
-        setattr(agent, _ORIGINAL_MODEL_ATTR, model)
-        agent.model = GovernanceModel(model, callbacks)
-        logger.debug("Wrapped Pydantic AI agent model with governance")
         return agent
-
-    def detach(self, governed: Any) -> Any:
-        """Restore the agent's original (unwrapped) model and return it."""
-        if isinstance(getattr(governed, "model", None), GovernanceModel):
-            original = getattr(governed, _ORIGINAL_MODEL_ATTR, None)
-            if original is not None:
-                governed.model = original
-        if hasattr(governed, _ORIGINAL_MODEL_ATTR):
-            delattr(governed, _ORIGINAL_MODEL_ATTR)
-        return governed
+    callbacks = GovernanceCallbacks(
+        evaluator=evaluator, agent_name=agent_name, session_id=session_id
+    )
+    agent.model = GovernanceModel(model, callbacks)
+    logger.debug("Wrapped Pydantic AI agent model with governance")
+    return agent
 
 
 class GovernanceModel(WrapperModel):

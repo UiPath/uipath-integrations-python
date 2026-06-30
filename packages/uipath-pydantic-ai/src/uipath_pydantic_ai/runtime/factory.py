@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 from pydantic_ai import Agent
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.runtime import (
     UiPathRuntimeContext,
     UiPathRuntimeFactorySettings,
@@ -12,6 +13,7 @@ from uipath.runtime import (
 )
 from uipath.runtime.errors import UiPathErrorCategory
 
+from uipath_pydantic_ai.governance import install_governance
 from uipath_pydantic_ai.runtime.config import PydanticAiConfig
 from uipath_pydantic_ai.runtime.errors import (
     UiPathPydanticAIErrorCode,
@@ -215,6 +217,7 @@ class UiPathPydanticAIRuntimeFactory:
         agent: Agent,
         runtime_id: str,
         entrypoint: str,
+        evaluator: EvaluatorProtocol | None = None,
     ) -> UiPathRuntimeProtocol:
         """
         Create a runtime instance from an agent.
@@ -223,10 +226,20 @@ class UiPathPydanticAIRuntimeFactory:
             agent: The PydanticAI Agent
             runtime_id: Unique identifier for the runtime instance
             entrypoint: Agent entrypoint name
+            evaluator: When supplied, governance is installed on the agent's
+                model in place via :func:`install_governance`.
 
         Returns:
             Configured runtime instance
         """
+        if evaluator is not None:
+            install_governance(
+                agent,
+                evaluator,
+                agent_name=entrypoint,
+                session_id=runtime_id,
+            )
+
         return UiPathPydanticAIRuntime(
             agent=agent,
             runtime_id=runtime_id,
@@ -242,7 +255,9 @@ class UiPathPydanticAIRuntimeFactory:
         Args:
             entrypoint: Agent name from pydantic_ai.json
             runtime_id: Unique identifier for the runtime instance
-            **kwargs: Additional keyword arguments (unused)
+            **kwargs: Forwarded factory kwargs. Recognized: ``evaluator``
+                (``EvaluatorProtocol``) — when present, governance is installed
+                on the agent's model via :func:`install_governance`.
 
         Returns:
             Configured runtime instance with agent
@@ -252,6 +267,7 @@ class UiPathPydanticAIRuntimeFactory:
         return await self._create_runtime_instance(
             agent=agent,
             runtime_id=runtime_id,
+            evaluator=kwargs.get("evaluator"),
             entrypoint=entrypoint,
         )
 

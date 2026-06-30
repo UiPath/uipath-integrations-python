@@ -28,9 +28,6 @@ register = "uipath_pydantic_ai.middlewares:register_middleware"
 [project.entry-points."uipath.runtime.factories"]
 pydantic-ai = "uipath_pydantic_ai.runtime:register_runtime_factory"
 
-[project.entry-points."uipath.governance.adapters"]
-pydantic-ai = "uipath_pydantic_ai.governance:register_governance_adapter"
-
 [project.urls]
 Homepage = "https://uipath.com"
 Repository = "https://github.com/UiPath/uipath-integrations-python"

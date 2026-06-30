@@ -1,4 +1,4 @@
-"""Unit tests for the Pydantic AI governance adapter.
+"""Unit tests for the Pydantic AI governance model wrapper.
 
 These tests use real ``pydantic_ai`` message parts (``UserPromptPart`` etc.)
 so the part-extraction logic is exercised against the actual types, plus the
@@ -12,6 +12,7 @@ tests run without an explicit marker.
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any, List
 
 import pytest
@@ -27,12 +28,12 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.test import TestModel
 from uipath.core.governance.exceptions import GovernanceBlockException
 
-from uipath_pydantic_ai.governance.adapter import (
+from uipath_pydantic_ai.governance.model import (
     _BEFORE_MODEL_TEXT_CAP,
     GovernanceCallbacks,
     GovernanceModel,
-    PydanticAIAdapter,
     _coerce_args,
+    install_governance,
 )
 
 # --------------------------------------------------------------------------
@@ -80,54 +81,66 @@ def _hooks(ev: FakeEvaluator) -> List[str]:
 
 
 # --------------------------------------------------------------------------
-# can_handle
+# install_governance
 # --------------------------------------------------------------------------
 
 
-def test_can_handle_agent():
-    assert PydanticAIAdapter().can_handle(Agent(model=TestModel())) is True
-
-
-def test_can_handle_rejects_non_agent():
-    from types import SimpleNamespace
-
-    # A duck-typed look-alike (model/run/iter) must NOT be claimed — only a real Agent.
-    look_alike = SimpleNamespace(model=object(), run=lambda: None, iter=lambda: None)
-    assert PydanticAIAdapter().can_handle(look_alike) is False
-    assert PydanticAIAdapter().can_handle(object()) is False
-
-
-# --------------------------------------------------------------------------
-# attach / detach
-# --------------------------------------------------------------------------
-
-
-def test_attach_wraps_model_and_detach_restores():
+def test_install_governance_wraps_model():
     agent = Agent(model=TestModel())
-    original = agent.model
-    adapter = PydanticAIAdapter()
-    returned = adapter.attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
+    returned = install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
     assert returned is agent
     assert isinstance(agent.model, GovernanceModel)
-    adapter.detach(agent)
-    assert agent.model is original
 
 
-def test_attach_is_idempotent():
+def test_install_governance_is_idempotent():
     agent = Agent(model=TestModel())
-    adapter = PydanticAIAdapter()
     ev = FakeEvaluator()
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
+    install_governance(agent, ev, agent_name="x", session_id="s")
     wrapped = agent.model
-    adapter.attach(agent, agent_id="x", session_id="s", evaluator=ev)
+    install_governance(agent, ev, agent_name="x", session_id="s")
     assert agent.model is wrapped  # not double-wrapped
 
 
-def test_attach_warns_when_no_bound_model(caplog):
+def test_install_governance_warns_when_no_bound_model(caplog):
     agent = Agent()  # no model bound
     with caplog.at_level(logging.WARNING):
-        PydanticAIAdapter().attach(agent, agent_id="x", session_id="s", evaluator=FakeEvaluator())
+        install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
     assert any("no bound Model" in r.message for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# Factory wiring — the evaluator kwarg drives install_governance
+# --------------------------------------------------------------------------
+
+
+def _factory_without_init():
+    """A factory instance that skips __init__ (avoids config/IO)."""
+    from uipath_pydantic_ai.runtime.factory import UiPathPydanticAIRuntimeFactory
+
+    return UiPathPydanticAIRuntimeFactory.__new__(UiPathPydanticAIRuntimeFactory)
+
+
+async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
+    from uipath_pydantic_ai.runtime import factory as factory_mod
+
+    monkeypatch.setattr(factory_mod, "UiPathPydanticAIRuntime", lambda **kw: SimpleNamespace(**kw))
+    agent = Agent(model=TestModel())
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
+    )
+    assert isinstance(agent.model, GovernanceModel)
+
+
+async def test_factory_skips_governance_without_evaluator(monkeypatch):
+    from uipath_pydantic_ai.runtime import factory as factory_mod
+
+    monkeypatch.setattr(factory_mod, "UiPathPydanticAIRuntime", lambda **kw: SimpleNamespace(**kw))
+    agent = Agent(model=TestModel())
+    original = agent.model
+    await _factory_without_init()._create_runtime_instance(
+        agent=agent, runtime_id="r", entrypoint="e"
+    )
+    assert agent.model is original
 
 
 # --------------------------------------------------------------------------

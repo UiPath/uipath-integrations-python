@@ -268,7 +268,12 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
     async def on_tool_end(
         self, context: Any, agent: Any, tool: Any, result: Any
     ) -> None:
-        """Evaluate AFTER_TOOL rules immediately after a tool is invoked."""
+        """Evaluate AFTER_TOOL rules immediately after a tool is invoked.
+
+        The SDK passes ``tool`` to both ``on_tool_start`` and ``on_tool_end``,
+        so the name is read directly here — no start→end correlation is needed
+        (unlike callback frameworks whose end hook omits the tool).
+        """
         try:
             tool_name = getattr(tool, "name", None) or "unknown"
             tool_result = "" if result is None else _stringify(result)
@@ -301,6 +306,10 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
 
 # --------------------------------------------------------------------------
 # Delegation + text extraction (module-level, sync, duck-typed)
+#
+# Extraction is duck-typed on purpose: the OpenAI Agents SDK's run-item /
+# response shapes are not stable public models, so we read attributes
+# defensively rather than isinstance-checking SDK types that may move.
 # --------------------------------------------------------------------------
 
 

@@ -12,7 +12,7 @@ state is mutated.
 
 from __future__ import annotations
 
-from .adapter import GovernanceAgentHooks, install_governance
+from .hooks import GovernanceAgentHooks, install_governance
 
 __all__ = [
     "GovernanceAgentHooks",

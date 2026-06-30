@@ -1,4 +1,4 @@
-"""Unit tests for the OpenAI Agents governance adapter.
+"""Unit tests for the OpenAI Agents governance hooks.
 
 ``can_handle`` is tested against a real ``agents.Agent``; everything else
 duck-types the OpenAI Agents payloads (response input/output items, tools)
@@ -20,7 +20,7 @@ from typing import Any, List
 import pytest
 from uipath.core.governance.exceptions import GovernanceBlockException
 
-from uipath_openai_agents.governance.adapter import (
+from uipath_openai_agents.governance.hooks import (
     _BEFORE_MODEL_TEXT_CAP,
     GovernanceAgentHooks,
     install_governance,

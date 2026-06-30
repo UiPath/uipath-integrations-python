@@ -1,29 +1,29 @@
-"""OpenAI Agents adapter for UiPath governance.
+"""OpenAI Agents governance hooks for UiPath.
 
 Provides governance for OpenAI Agents SDK agents (``agents.Agent`` and any
-graph of agents reachable via ``handoffs``). Like the Google ADK adapter —
-and unlike the LangChain adapter, which wraps a ``Runnable`` and intercepts
+graph of agents reachable via ``handoffs``). Like the Google ADK integration —
+and unlike the LangChain one, which wraps a ``Runnable`` and intercepts
 ``invoke`` / ``ainvoke`` — OpenAI Agents are executed by ``Runner.run`` /
 ``Runner.run_streamed``, which hold their **own** reference to the agent
 object. Replacing ``runtime.agent`` with a proxy would never reach the
-``Runner``. So this adapter installs governance directly onto each agent's
-native ``hooks`` attribute (an :class:`agents.AgentHooks`), mutating it in
-place:
+``Runner``. So :func:`install_governance` installs governance directly onto
+each agent's native ``hooks`` attribute (an :class:`agents.AgentHooks`),
+mutating it in place:
 
 - ``on_llm_start``  → BEFORE_MODEL
 - ``on_llm_end``    → AFTER_MODEL
 - ``on_tool_start`` → TOOL_CALL
 - ``on_tool_end``   → AFTER_TOOL
 
-Because the mutation is in place, :meth:`OpenAIAgentsAdapter.attach` returns
-the **original agent** (hooks installed) rather than a wrapping proxy.
+Because the mutation is in place, :func:`install_governance` returns the
+**original agent** (hooks installed) rather than a wrapping proxy.
 ``agents.Agent`` validates that ``hooks`` is an ``AgentHooks`` instance, so
-:class:`GovernanceAgentHooks` subclasses it (the ADK adapter could duck-type
-its callbacks; here the SDK type-checks the slot).
+:class:`GovernanceAgentHooks` subclasses it (the ADK integration could
+duck-type its callbacks; here the SDK type-checks the slot).
 
 ``agent.hooks`` holds a **single** ``AgentHooks`` (not a list, as in ADK), so
 when an agent already carries user hooks we *chain*: governance runs first,
-then the previously-installed hooks. ``detach`` restores the original.
+then the previously-installed hooks.
 
 Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
 governance host, so they are not fired here — that would duplicate every

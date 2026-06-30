@@ -254,6 +254,10 @@ class GovernanceCallbacks:
             logger.warning("after_tool governance check failed (continuing): %s", e)
 
     # ----- Text extraction ---------------------------------------------
+    # Payload text is read defensively via ``.text`` rather than
+    # isinstance-checking agent-framework message/response models: those
+    # shapes are still pre-release (rc) and not stable public types, so we
+    # avoid coupling extraction to types that may move.
 
     @classmethod
     def _latest_message_text(cls, messages: Any) -> str:

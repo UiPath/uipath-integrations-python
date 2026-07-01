@@ -449,3 +449,74 @@ def test_non_block_exception_is_swallowed(caplog):
     with caplog.at_level(logging.WARNING):
         cb.on_request([ModelRequest(parts=[UserPromptPart(content="x")])])
     assert any("governance check failed" in r.message for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# coverage: swallow paths on every hook + extraction/helper edges
+# --------------------------------------------------------------------------
+
+
+class _Boom:
+    """Evaluator whose every evaluate_* raises a non-block error."""
+
+    def __getattr__(self, _name: str) -> Any:
+        def _raise(*_a: Any, **_k: Any) -> None:
+            raise RuntimeError("evaluator bug")
+
+        return _raise
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda cb: cb.on_response(
+            ModelResponse(
+                parts=[
+                    TextPart(content="x"),
+                    ToolCallPart(tool_name="t", args={}, tool_call_id="c"),
+                ]
+            )
+        ),
+        lambda cb: cb.on_request(
+            [
+                ModelRequest(
+                    parts=[ToolReturnPart(tool_name="t", content="r", tool_call_id="c")]
+                )
+            ]
+        ),
+    ],
+)
+def test_response_and_tool_paths_swallow_non_block_errors(invoke, caplog):
+    cb = GovernanceCallbacks(evaluator=_Boom(), agent_name="a", session_id="s")  # type: ignore[arg-type]
+    with caplog.at_level(logging.WARNING):
+        invoke(cb)  # must NOT raise — a governance bug can't break the run
+    assert any("governance check failed" in r.message for r in caplog.records)
+
+
+def test_on_request_with_only_model_response_scans_empty():
+    # history ending with (only) a ModelResponse → no ModelRequest → empty input
+    ev = FakeEvaluator()
+    cb = _make_callbacks(ev)
+    cb.on_request([ModelResponse(parts=[TextPart(content="assistant")])])
+    assert ev.calls[0][1]["model_input"] == ""
+
+
+def test_extraction_and_helper_edges():
+    from uipath_pydantic_ai.governance.model import (
+        _content_text,
+        _stringify,
+        _tool_name,
+    )
+
+    # _content_text: None / str / list-of-(str|obj) / bare object
+    assert _content_text(None) == ""
+    assert _content_text("plain") == "plain"
+    assert "a" in _content_text(["a", SimpleNamespace(text="b")])
+    assert isinstance(_content_text(SimpleNamespace()), str)
+    # _stringify: str passthrough + circular-ref fallback (no crash)
+    assert _stringify("hi") == "hi"
+    circular: dict[str, Any] = {}
+    circular["self"] = circular
+    assert isinstance(_stringify(circular), str)
+    # _tool_name: missing name → warns + "unknown"
+    assert _tool_name(SimpleNamespace()) == "unknown"

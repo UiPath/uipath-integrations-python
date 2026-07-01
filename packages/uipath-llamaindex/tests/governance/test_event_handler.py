@@ -15,7 +15,9 @@ from typing import Any, List
 
 import pytest
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse
-from llama_index.core.instrumentation import get_dispatcher
+from llama_index.core.instrumentation import (  # type: ignore[attr-defined]
+    get_dispatcher,
+)
 from llama_index.core.instrumentation.events.agent import AgentToolCallEvent
 from llama_index.core.instrumentation.events.llm import (
     LLMChatEndEvent,
@@ -43,29 +45,29 @@ class FakeEvaluator:
 
     def __init__(self, block_on: str | None = None) -> None:
         self.block_on = block_on
-        self.calls: List[tuple[str, dict]] = []
+        self.calls: List[tuple[str, dict[str, Any]]] = []
 
     def _record(self, hook: str, **kwargs: Any) -> None:
         self.calls.append((hook, kwargs))
         if self.block_on == hook:
-            raise GovernanceBlockException("blocked")  # type: ignore[call-arg]
+            raise GovernanceBlockException("blocked")
 
-    def evaluate_before_agent(self, **kwargs: Any) -> None:
+    def evaluate_before_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_agent", **kwargs)
 
-    def evaluate_after_agent(self, **kwargs: Any) -> None:
+    def evaluate_after_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_agent", **kwargs)
 
-    def evaluate_before_model(self, **kwargs: Any) -> None:
+    def evaluate_before_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_model", **kwargs)
 
-    def evaluate_after_model(self, **kwargs: Any) -> None:
+    def evaluate_after_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_model", **kwargs)
 
-    def evaluate_tool_call(self, **kwargs: Any) -> None:
+    def evaluate_tool_call(self, *args: Any, **kwargs: Any) -> Any:
         self._record("tool_call", **kwargs)
 
-    def evaluate_after_tool(self, **kwargs: Any) -> None:
+    def evaluate_after_tool(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_tool", **kwargs)
 
 
@@ -89,7 +91,7 @@ def _handler(ev: FakeEvaluator) -> GovernanceEventHandler:
 # --------------------------------------------------------------------------
 
 
-def _gov_handlers() -> list:
+def _gov_handlers() -> list[Any]:
     return [
         h
         for h in get_dispatcher().event_handlers
@@ -158,7 +160,7 @@ def _factory_without_init():
     from uipath_llamaindex.runtime.factory import UiPathLlamaIndexRuntimeFactory
 
     f = UiPathLlamaIndexRuntimeFactory.__new__(UiPathLlamaIndexRuntimeFactory)
-    f.context = SimpleNamespace(command="run")  # read for debug_mode
+    f.context = SimpleNamespace(command="run")  # type: ignore[assignment]  # read for debug_mode
     return f
 
 

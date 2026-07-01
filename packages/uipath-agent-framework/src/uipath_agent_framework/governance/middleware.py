@@ -45,7 +45,6 @@ import json
 import logging
 from collections.abc import Mapping
 from typing import Any, Awaitable, Callable, Dict, List
-from uuid import uuid4
 
 from agent_framework._middleware import (
     ChatContext,
@@ -158,7 +157,10 @@ class GovernanceCallbacks:
         self._evaluator = evaluator
         self._agent_name = agent_name
         self._session_id = session_id
-        self._trace_id = str(uuid4())
+        # ``trace_id`` is intentionally NOT held here. A single uuid minted at
+        # install time would be identical for every call. Trace correlation is
+        # owned by the layer below (OTel span / HTTP resolve at call time),
+        # matching the LangChain adapter.
         self._session_state: Dict[str, Any] = {"tool_calls": 0, "llm_calls": 0}
 
     # ----- Model --------------------------------------------------------
@@ -166,14 +168,15 @@ class GovernanceCallbacks:
     def before_model(self, messages: Any) -> None:
         """Evaluate BEFORE_MODEL on the latest message only (see ADK rationale)."""
         try:
-            self._session_state["llm_calls"] = (
-                self._session_state.get("llm_calls", 0) + 1
-            )
             self._evaluator.evaluate_before_model(
                 model_input=self._latest_message_text(messages),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
+            )
+            # Count only calls that passed governance — a DENY raises above, so
+            # a blocked call must not inflate the counter.
+            self._session_state["llm_calls"] = (
+                self._session_state.get("llm_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -187,7 +190,6 @@ class GovernanceCallbacks:
                 model_output=self._response_text(result),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
@@ -199,16 +201,17 @@ class GovernanceCallbacks:
     def before_tool(self, function: Any, arguments: Any) -> None:
         """Evaluate TOOL_CALL with the tool name + arguments."""
         try:
-            self._session_state["tool_calls"] = (
-                self._session_state.get("tool_calls", 0) + 1
-            )
             self._evaluator.evaluate_tool_call(
                 tool_name=getattr(function, "name", None) or "unknown",
                 tool_args=_coerce_args(arguments),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
                 session_state=self._session_state,
+            )
+            # Count only calls that passed governance; the evaluator saw the
+            # count of prior tool calls, and a DENY raises before this bump.
+            self._session_state["tool_calls"] = (
+                self._session_state.get("tool_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -223,7 +226,6 @@ class GovernanceCallbacks:
                 tool_result="" if result is None else _stringify(result),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
@@ -281,8 +283,39 @@ class GovernanceChatMiddleware(ChatMiddleware):
         self, context: ChatContext, call_next: Callable[[], Awaitable[None]]
     ) -> None:
         self._cb.before_model(getattr(context, "messages", None))
-        await call_next()
-        self._cb.after_model(getattr(context, "result", None))
+
+        if getattr(context, "stream", False):
+            # Streaming: after ``call_next`` ``context.result`` is a
+            # ResponseStream, not finalized text — reading it for AFTER_MODEL
+            # yields nothing. Register a result hook so AFTER_MODEL runs on the
+            # finalized ``ChatResponse`` the framework assembles once the stream
+            # is consumed.
+            hooks = getattr(context, "stream_result_hooks", None)
+            if isinstance(hooks, list):
+                hooks.append(self._govern_streamed_result)
+            else:  # pragma: no cover - defensive: framework always provides it
+                logger.debug(
+                    "ChatContext has no stream_result_hooks; AFTER_MODEL will "
+                    "not run for this streamed response"
+                )
+            await call_next()
+            return
+
+        try:
+            await call_next()
+        finally:
+            # AFTER_MODEL must run even if the model call raised, so audit and
+            # rules still observe whatever result is present.
+            self._cb.after_model(getattr(context, "result", None))
+
+    def _govern_streamed_result(self, response: Any) -> Any:
+        """``stream_result_hook``: govern the finalized streamed ``ChatResponse``.
+
+        Returns the response unchanged (governance observes, it does not
+        rewrite). A DENY raised here still propagates to abort the run.
+        """
+        self._cb.after_model(response)
+        return response
 
 
 class GovernanceFunctionMiddleware(FunctionMiddleware):
@@ -298,8 +331,11 @@ class GovernanceFunctionMiddleware(FunctionMiddleware):
     ) -> None:
         function = getattr(context, "function", None)
         self._cb.before_tool(function, getattr(context, "arguments", None))
-        await call_next()
-        self._cb.after_tool(function, getattr(context, "result", None))
+        try:
+            await call_next()
+        finally:
+            # AFTER_TOOL must run even if the tool call raised.
+            self._cb.after_tool(function, getattr(context, "result", None))
 
 
 # Tuple used for isinstance idempotency / detach checks.
@@ -328,11 +364,17 @@ def _coerce_args(arguments: Any) -> Dict[str, Any]:
     return {}
 
 
-def _stringify(value: Any) -> str:
-    """Render a dict / object payload as compact, scannable text."""
+def _stringify(value: Any, cap: int = _BEFORE_MODEL_TEXT_CAP) -> str:
+    """Render a dict / object payload as compact, scannable text, capped.
+
+    Bounded by ``cap`` so an oversized tool result or message payload can't
+    hand a multi-megabyte string to the evaluator. Callers that slice the
+    result again (the ``_message_text`` / ``_response_text`` fallbacks) are
+    unaffected.
+    """
     if isinstance(value, str):
-        return value
+        return value[:cap]
     try:
-        return json.dumps(value, default=str, ensure_ascii=False)
+        return json.dumps(value, default=str, ensure_ascii=False)[:cap]
     except (TypeError, ValueError):
-        return str(value)
+        return str(value)[:cap]

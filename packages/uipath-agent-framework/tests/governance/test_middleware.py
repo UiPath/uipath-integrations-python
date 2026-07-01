@@ -108,7 +108,9 @@ async def _noop_next() -> None:
 
 def test_install_governance_appends_both_middleware():
     agent = FakeAgent()
-    returned = install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
+    returned = install_governance(
+        agent, FakeEvaluator(), agent_name="x", session_id="s"
+    )
     assert returned is agent
     kinds = [type(m) for m in agent.middleware]
     assert GovernanceChatMiddleware in kinds
@@ -158,20 +160,28 @@ def _factory_without_init():
         UiPathAgentFrameworkRuntimeFactory,
     )
 
-    return UiPathAgentFrameworkRuntimeFactory.__new__(UiPathAgentFrameworkRuntimeFactory)
+    return UiPathAgentFrameworkRuntimeFactory.__new__(
+        UiPathAgentFrameworkRuntimeFactory
+    )
 
 
 def _stub_factory_runtime(monkeypatch, factory_mod):
     """Stub storage + runtime constructions so only the governance branch runs."""
     monkeypatch.setattr(factory_mod, "ScopedCheckpointStorage", lambda *a, **k: None)
-    monkeypatch.setattr(factory_mod, "UiPathAgentFrameworkRuntime", lambda **kw: SimpleNamespace(**kw))
-    monkeypatch.setattr(factory_mod, "UiPathResumableRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(
+        factory_mod, "UiPathAgentFrameworkRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
+    monkeypatch.setattr(
+        factory_mod, "UiPathResumableRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
     monkeypatch.setattr(factory_mod, "UiPathResumeTriggerHandler", lambda *a, **k: None)
 
     async def _storage(self):
         return SimpleNamespace(checkpoint_storage=object())
 
-    monkeypatch.setattr(factory_mod.UiPathAgentFrameworkRuntimeFactory, "_get_storage", _storage)
+    monkeypatch.setattr(
+        factory_mod.UiPathAgentFrameworkRuntimeFactory, "_get_storage", _storage
+    )
 
 
 async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
@@ -231,6 +241,45 @@ async def test_chat_middleware_caps_text():
     assert len(ev.calls[0][1]["model_input"]) <= _BEFORE_MODEL_TEXT_CAP
 
 
+async def test_after_model_runs_even_when_model_call_raises():
+    """AFTER_MODEL must fire from the finally so audit/rules still observe the
+    turn, and the underlying error must still propagate."""
+    ev = FakeEvaluator()
+    mw = GovernanceChatMiddleware(_make_callbacks(ev))
+
+    async def boom_next() -> None:
+        raise RuntimeError("model exploded")
+
+    context = SimpleNamespace(messages=[_msg("hi")], result=SimpleNamespace(text=""))
+    with pytest.raises(RuntimeError, match="model exploded"):
+        await mw.process(context, boom_next)
+    assert [h for h, _ in ev.calls] == ["before_model", "after_model"]
+
+
+async def test_streaming_governs_finalized_response_via_result_hook():
+    """Streaming: context.result is a ResponseStream after call_next, so
+    AFTER_MODEL runs from a stream_result_hook on the finalized ChatResponse."""
+    ev = FakeEvaluator()
+    mw = GovernanceChatMiddleware(_make_callbacks(ev))
+    context = SimpleNamespace(
+        messages=[_msg("the question")],
+        stream=True,
+        stream_result_hooks=[],
+        result=None,
+    )
+    await mw.process(context, _noop_next)
+
+    # BEFORE_MODEL fired; AFTER_MODEL deferred to the registered hook.
+    assert [h for h, _ in ev.calls] == ["before_model"]
+    assert len(context.stream_result_hooks) == 1
+
+    finalized = SimpleNamespace(text="the streamed answer")
+    returned = context.stream_result_hooks[0](finalized)
+    assert returned is finalized  # hook returns the response unchanged
+    assert [h for h, _ in ev.calls] == ["before_model", "after_model"]
+    assert ev.calls[-1][1]["model_output"] == "the streamed answer"
+
+
 # --------------------------------------------------------------------------
 # FunctionMiddleware → TOOL_CALL / AFTER_TOOL
 # --------------------------------------------------------------------------
@@ -268,6 +317,29 @@ async def test_function_middleware_coerces_pydantic_args():
     await mw.process(context, _noop_next)
     assert ev.calls[0][1]["tool_args"] == {"x": 1}
     assert ev.calls[1][1]["tool_result"] == ""  # None result → ""
+
+
+async def test_after_tool_runs_even_when_tool_call_raises():
+    ev = FakeEvaluator()
+    mw = GovernanceFunctionMiddleware(_make_callbacks(ev))
+
+    async def boom_next() -> None:
+        raise RuntimeError("tool exploded")
+
+    context = SimpleNamespace(function=FakeTool("t"), arguments={}, result=None)
+    with pytest.raises(RuntimeError, match="tool exploded"):
+        await mw.process(context, boom_next)
+    assert [h for h, _ in ev.calls] == ["tool_call", "after_tool"]
+
+
+def test_blocked_before_tool_does_not_increment_counter():
+    """A DENY raises before the counter bump, so the count is not inflated."""
+    ev = FakeEvaluator(block_on="tool_call")
+    cb = _make_callbacks(ev)
+    with pytest.raises(GovernanceBlockException):
+        cb.before_tool(FakeTool("t"), {})
+    assert ev.calls[-1][1]["session_state"]["tool_calls"] == 0
+    assert cb._session_state["tool_calls"] == 0
 
 
 # --------------------------------------------------------------------------

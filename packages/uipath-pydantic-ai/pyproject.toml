@@ -8,6 +8,7 @@ dependencies = [
     "pydantic-ai>=1.63.0, <2.0.0",
     "openinference-instrumentation-pydantic-ai>=0.1.12",
     "uipath>=2.10.2, <2.11.0",
+    "uipath-core>=0.5.18, <0.7.0",
     "uipath-runtime>=0.11.0, <0.12.0",
 ]
 classifiers = [

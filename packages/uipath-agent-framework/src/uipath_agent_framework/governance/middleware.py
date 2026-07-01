@@ -64,6 +64,10 @@ logger = logging.getLogger(__name__)
 # prompt — see :meth:`GovernanceCallbacks._latest_message_text`.
 _BEFORE_MODEL_TEXT_CAP = 64000
 
+# Hard cap on how many nodes the workflow walk visits, guarding against cyclic
+# or pathologically deep (nested) workflows. Hitting it is logged, not silent.
+_MAX_GRAPH_NODES = 1000
+
 
 def install_governance(
     agent: Any,
@@ -87,6 +91,13 @@ def install_governance(
         evaluator=evaluator, agent_name=agent_name, session_id=session_id
     )
     targets = _iter_agents(agent)
+    if not targets:
+        logger.warning(
+            "install_governance found no agent in %s — hooks will not fire",
+            type(agent).__name__,
+        )
+        return agent
+
     installed = 0
     for node in targets:
         existing = list(getattr(node, "middleware", None) or [])
@@ -99,13 +110,7 @@ def install_governance(
             *existing,
         ]
         installed += 1
-    if not targets:
-        logger.warning(
-            "install_governance found no agent in %s — hooks will not fire",
-            type(agent).__name__,
-        )
-    else:
-        logger.debug("Installed governance middleware on %d agent(s)", installed)
+    logger.debug("Installed governance middleware on %d agent(s)", installed)
     return agent
 
 
@@ -113,28 +118,40 @@ def _iter_agents(root: Any) -> List[Any]:
     """Return every agent node carrying a ``middleware`` slot.
 
     A plain ``Agent`` is itself the target. A ``WorkflowAgent`` exposes its
-    inner agents through ``workflow.executors[*]._agent`` (the same traversal
-    the breakpoint middleware uses), so a multi-agent app is governed end to
-    end. Cycles / pathological size are bounded by an id-visited set and a cap.
+    inner agents through ``workflow.executors[*]._agent``. Those inner agents
+    can themselves be ``WorkflowAgent``s (workflow-of-workflows), so the walk
+    **recurses** through nested workflows rather than stopping one level down —
+    otherwise a nested workflow's agents would run ungoverned. Cycles and
+    pathological depth are bounded by an id-visited set and a hard cap
+    (``_MAX_GRAPH_NODES``), which logs rather than silently truncating.
     """
     found: List[Any] = []
     seen: set[int] = set()
-
-    def _add(node: Any) -> None:
+    stack: List[Any] = [root]
+    capped = False
+    while stack:
+        if len(seen) >= _MAX_GRAPH_NODES:
+            capped = True
+            break
+        node = stack.pop()
         if node is None or id(node) in seen:
-            return
+            continue
         seen.add(id(node))
         if hasattr(node, "middleware"):
             found.append(node)
-
-    _add(root)
-    workflow = getattr(root, "workflow", None)
-    executors = getattr(workflow, "executors", None)
-    if isinstance(executors, Mapping):
-        for executor in list(executors.values()):
-            inner = getattr(executor, "_agent", None)
-            if inner is not None and len(seen) < 1000:
-                _add(inner)
+        workflow = getattr(node, "workflow", None)
+        executors = getattr(workflow, "executors", None)
+        if isinstance(executors, Mapping):
+            for executor in executors.values():
+                inner = getattr(executor, "_agent", None)
+                if inner is not None:
+                    stack.append(inner)
+    if capped:
+        logger.warning(
+            "install_governance stopped walking the agent graph at the %d-node "
+            "cap; agents beyond it will not be governed",
+            _MAX_GRAPH_NODES,
+        )
     return found
 
 
@@ -359,8 +376,15 @@ def _coerce_args(arguments: Any) -> Dict[str, Any]:
             dumped = model_dump()
             if isinstance(dumped, dict):
                 return dumped
-        except Exception:  # noqa: BLE001 - fall through to empty
-            pass
+        except Exception as e:  # noqa: BLE001
+            # Don't silently drop the args from governance visibility — surface
+            # that they couldn't be coerced.
+            logger.warning(
+                "governance: could not coerce %s tool args to a dict (%s); "
+                "TOOL_CALL will see empty args",
+                type(arguments).__name__,
+                e,
+            )
     return {}
 
 

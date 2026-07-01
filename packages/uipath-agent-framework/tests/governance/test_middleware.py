@@ -125,6 +125,25 @@ def test_install_governance_installs_on_workflow_inner_agents():
         assert any(isinstance(m, GovernanceChatMiddleware) for m in node.middleware)
 
 
+def test_install_governance_recurses_into_nested_workflow():
+    """A WorkflowAgent inside a WorkflowAgent (workflow-of-workflows): the deep
+    leaf agent must still be governed, not left one level below the walk."""
+    leaf = FakeAgent("leaf")
+    inner = FakeWorkflowAgent([leaf])
+    root = FakeWorkflowAgent([inner])
+    install_governance(root, FakeEvaluator(), agent_name="x", session_id="s")
+    assert any(isinstance(m, GovernanceChatMiddleware) for m in leaf.middleware)
+
+
+def test_install_governance_is_cycle_safe():
+    """A workflow whose executor points back at itself must not loop forever."""
+    w = FakeWorkflowAgent([])
+    w.workflow.executors = {"self": SimpleNamespace(_agent=w)}
+    # completes (id-visited set breaks the cycle) and governs w exactly once
+    install_governance(w, FakeEvaluator(), agent_name="x", session_id="s")
+    assert sum(isinstance(m, GovernanceChatMiddleware) for m in w.middleware) == 1
+
+
 def test_install_governance_is_idempotent():
     agent = FakeAgent()
     ev = FakeEvaluator()

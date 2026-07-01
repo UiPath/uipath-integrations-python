@@ -20,7 +20,7 @@ from uipath.runtime import (
 from uipath.runtime.errors import UiPathErrorCategory
 from workflows import Workflow
 
-from uipath_llamaindex.governance import install_governance
+from uipath_llamaindex.governance import install_governance, uninstall_governance
 from uipath_llamaindex.runtime._telemetry import (
     ToolCallAttributeNormalizer,
 )
@@ -304,6 +304,11 @@ class UiPathLlamaIndexRuntimeFactory:
 
     async def dispose(self) -> None:
         """Cleanup factory resources."""
+        # The governance handler lives on the process-global instrumentation
+        # dispatcher; remove it so the evaluator (and its resources) are not
+        # retained after the runtime is gone.
+        uninstall_governance()
+
         for loader in self._workflow_loaders.values():
             await loader.cleanup()
 

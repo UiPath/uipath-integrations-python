@@ -30,6 +30,7 @@ from uipath_llamaindex.governance.event_handler import (
     GovernanceEventHandler,
     _coerce_args,
     install_governance,
+    uninstall_governance,
 )
 
 # --------------------------------------------------------------------------
@@ -97,16 +98,16 @@ def _gov_handlers() -> list:
 
 
 def _clear_gov_handlers() -> None:
-    d = get_dispatcher()
-    d.event_handlers = [
-        h for h in d.event_handlers if not isinstance(h, GovernanceEventHandler)
-    ]
+    # Use the adapter's own public detach rather than mutating the dispatcher.
+    uninstall_governance()
 
 
 def test_install_governance_registers_handler():
     agent = FakeWorkflow()
     try:
-        returned = install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
+        returned = install_governance(
+            agent, FakeEvaluator(), agent_name="x", session_id="s"
+        )
         assert returned is agent
         assert len(_gov_handlers()) == 1
     finally:
@@ -114,14 +115,37 @@ def test_install_governance_registers_handler():
     assert _gov_handlers() == []
 
 
-def test_install_governance_is_idempotent():
-    ev = FakeEvaluator()
+def test_install_governance_reinstall_rebinds_single_handler():
+    """The dispatcher is process-global: a second install keeps one handler but
+    rebinds it to the new run's evaluator / session (last install wins)."""
     try:
-        install_governance(FakeWorkflow(), ev, agent_name="x", session_id="s")
-        install_governance(FakeWorkflow(), ev, agent_name="x", session_id="s")
-        assert len(_gov_handlers()) == 1
+        install_governance(
+            FakeWorkflow(), FakeEvaluator(), agent_name="a", session_id="s1"
+        )
+        handlers = _gov_handlers()
+        assert len(handlers) == 1
+        gov = handlers[0]
+        assert gov._callbacks._session_id == "s1"
+
+        ev2 = FakeEvaluator()
+        install_governance(FakeWorkflow(), ev2, agent_name="b", session_id="s2")
+        handlers = _gov_handlers()
+        assert len(handlers) == 1  # not stacked
+        assert handlers[0] is gov  # same handler, rebound
+        assert gov._callbacks._session_id == "s2"
+        assert gov._callbacks._evaluator is ev2
     finally:
         _clear_gov_handlers()
+
+
+def test_uninstall_governance_removes_handler():
+    install_governance(FakeWorkflow(), FakeEvaluator(), agent_name="x", session_id="s")
+    assert len(_gov_handlers()) == 1
+    uninstall_governance()
+    assert _gov_handlers() == []
+    # safe to call again when nothing is registered
+    uninstall_governance()
+    assert _gov_handlers() == []
 
 
 # --------------------------------------------------------------------------
@@ -140,14 +164,20 @@ def _factory_without_init():
 
 def _stub_factory_runtime(monkeypatch, factory_mod):
     """Stub the runtime constructions + storage so only the governance branch runs."""
-    monkeypatch.setattr(factory_mod, "UiPathLlamaIndexRuntime", lambda **kw: SimpleNamespace(**kw))
-    monkeypatch.setattr(factory_mod, "UiPathResumableRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(
+        factory_mod, "UiPathLlamaIndexRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
+    monkeypatch.setattr(
+        factory_mod, "UiPathResumableRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
     monkeypatch.setattr(factory_mod, "UiPathResumeTriggerHandler", lambda *a, **k: None)
 
     async def _no_storage(self):
         return None
 
-    monkeypatch.setattr(factory_mod.UiPathLlamaIndexRuntimeFactory, "_get_storage", _no_storage)
+    monkeypatch.setattr(
+        factory_mod.UiPathLlamaIndexRuntimeFactory, "_get_storage", _no_storage
+    )
 
 
 async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
@@ -156,7 +186,10 @@ async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
     _stub_factory_runtime(monkeypatch, factory_mod)
     try:
         await _factory_without_init()._create_runtime_instance(
-            workflow=FakeWorkflow(), runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
+            workflow=FakeWorkflow(),
+            runtime_id="r",
+            entrypoint="e",
+            evaluator=FakeEvaluator(),
         )
         assert len(_gov_handlers()) == 1
     finally:
@@ -182,8 +215,10 @@ def test_handler_routes_llm_chat_start_to_before_model():
     ev = FakeEvaluator()
     h = _handler(ev)
     event = LLMChatStartEvent(
-        messages=[ChatMessage(role="user", content="old"),
-                  ChatMessage(role="user", content="the question")],
+        messages=[
+            ChatMessage(role="user", content="old"),
+            ChatMessage(role="user", content="the question"),
+        ],
         additional_kwargs={},
         model_dict={},
     )
@@ -198,7 +233,9 @@ def test_handler_routes_llm_chat_end_to_after_model():
     h = _handler(ev)
     event = LLMChatEndEvent(
         messages=[ChatMessage(role="user", content="q")],
-        response=ChatResponse(message=ChatMessage(role="assistant", content="the answer")),
+        response=ChatResponse(
+            message=ChatMessage(role="assistant", content="the answer")
+        ),
     )
     h.handle(event)
     hook, kwargs = ev.calls[-1]
@@ -269,9 +306,20 @@ def test_coerce_args_none_and_bad():
 @pytest.mark.parametrize(
     "hook,invoke",
     [
-        ("before_model", lambda cb: cb.before_model([ChatMessage(role="user", content="hi")])),
-        ("after_model", lambda cb: cb.after_model(ChatResponse(message=ChatMessage(role="assistant", content="o")))),
-        ("tool_call", lambda cb: cb.tool_call(ToolMetadata(description="d", name="t"), "{}")),
+        (
+            "before_model",
+            lambda cb: cb.before_model([ChatMessage(role="user", content="hi")]),
+        ),
+        (
+            "after_model",
+            lambda cb: cb.after_model(
+                ChatResponse(message=ChatMessage(role="assistant", content="o"))
+            ),
+        ),
+        (
+            "tool_call",
+            lambda cb: cb.tool_call(ToolMetadata(description="d", name="t"), "{}"),
+        ),
     ],
 )
 def test_block_exception_propagates(hook, invoke):
@@ -286,6 +334,16 @@ def test_non_block_exception_is_swallowed(caplog):
             raise RuntimeError("evaluator bug")
 
     cb = GovernanceCallbacks(evaluator=Boom(), agent_name="a", session_id="s")  # type: ignore[arg-type]
-    with caplog.at_level(logging.WARNING):
+    # Attach caplog's handler directly to the module logger: other suites in the
+    # full run can configure an ancestor ``uipath*`` logger with
+    # propagate=False, which breaks caplog's default root-handler capture.
+    logger = logging.getLogger("uipath_llamaindex.governance.event_handler")
+    logger.addHandler(caplog.handler)
+    prev = logger.level
+    logger.setLevel(logging.WARNING)
+    try:
         cb.before_model([ChatMessage(role="user", content="x")])
+    finally:
+        logger.removeHandler(caplog.handler)
+        logger.setLevel(prev)
     assert any("governance check failed" in r.message for r in caplog.records)

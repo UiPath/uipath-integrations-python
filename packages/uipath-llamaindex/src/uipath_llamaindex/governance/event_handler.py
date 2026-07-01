@@ -15,7 +15,18 @@ event propagated from child dispatchers:
 The dispatcher is process-global, so registration is process-wide — which fits
 the coded-agent model (one workflow per process). :func:`install_governance`
 therefore returns the ``agent`` unchanged (nothing is mutated on it); the wiring
-lives on the dispatcher.
+lives on the dispatcher. A second install (a reused process serving a new
+runtime) **rebinds** that one handler to the new run's evaluator / session
+rather than silently ignoring it — the most-recent install governs.
+:func:`uninstall_governance` removes the handler so the global dispatcher does
+not retain the evaluator after the runtime is gone; the factory calls it on
+dispose.
+
+Because the dispatcher is process-global and LlamaIndex events do not carry a
+stable per-run identity, this adapter does not isolate two *concurrently*
+executing runtimes in the same process — they would share the latest-installed
+evaluator. That is a property of LlamaIndex's global instrumentation and matches
+the one-workflow-per-process runtime model.
 
 LlamaIndex does **not** emit a tool-*end* instrumentation event, so AFTER_TOOL
 is not wired here; a tool's result is governed at the next ``LLMChatStartEvent``
@@ -42,7 +53,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Dict, List
-from uuid import uuid4
 
 from llama_index.core.instrumentation import (  # type: ignore[attr-defined]
     get_dispatcher,
@@ -76,20 +86,46 @@ def install_governance(
     """Register the governance event handler on the root dispatcher.
 
     Returns the ``agent`` unchanged — LlamaIndex governance is wired on the
-    process-global instrumentation dispatcher, not on the agent object.
-    Idempotent: a second call is a no-op while a handler is already registered.
+    process-global instrumentation dispatcher, not on the agent object. If a
+    governance handler is already registered (a reused process serving a new
+    runtime), it is **rebound** to this run's evaluator / session instead of
+    being left pointing at the previous run.
 
     Called by :class:`UiPathLlamaIndexRuntimeFactory` when an ``evaluator``
     is supplied to ``new_runtime``.
     """
     dispatcher = get_dispatcher()
-    if any(isinstance(h, GovernanceEventHandler) for h in dispatcher.event_handlers):
-        return agent  # idempotent — already governed
+    for handler in dispatcher.event_handlers:
+        if isinstance(handler, GovernanceEventHandler):
+            handler.rebind(
+                evaluator=evaluator, agent_name=agent_name, session_id=session_id
+            )
+            logger.debug("Rebound existing governance handler to the new runtime")
+            return agent
     callbacks = GovernanceCallbacks(
         evaluator=evaluator, agent_name=agent_name, session_id=session_id
     )
     dispatcher.add_event_handler(GovernanceEventHandler(callbacks=callbacks))
     logger.debug("Registered governance event handler on LlamaIndex dispatcher")
+    return agent
+
+
+def uninstall_governance(agent: Any = None) -> Any:
+    """Remove the governance handler(s) from the root dispatcher.
+
+    The instrumentation dispatcher is process-global, so a registered handler
+    (and the evaluator it holds) would otherwise outlive the runtime. The
+    factory calls this on ``dispose`` to release it. Returns ``agent`` unchanged.
+    Safe to call when nothing is registered.
+    """
+    dispatcher = get_dispatcher()
+    handlers = dispatcher.event_handlers
+    remaining = [h for h in handlers if not isinstance(h, GovernanceEventHandler)]
+    if len(remaining) != len(handlers):
+        # event_handlers is a plain list; mutate in place to avoid a pydantic
+        # attribute re-assignment on the Dispatcher model.
+        handlers[:] = remaining
+        logger.debug("Removed governance event handler from LlamaIndex dispatcher")
     return agent
 
 
@@ -112,7 +148,23 @@ class GovernanceEventHandler(BaseEventHandler):
     def class_name(cls) -> str:
         return "GovernanceEventHandler"
 
+    def rebind(
+        self,
+        evaluator: EvaluatorProtocol,
+        agent_name: str,
+        session_id: str,
+    ) -> None:
+        """Re-point the single process-global handler at a new runtime."""
+        self._callbacks.rebind(
+            evaluator=evaluator, agent_name=agent_name, session_id=session_id
+        )
+
     def handle(self, event: Any, **kwargs: Any) -> Any:
+        # The dispatcher calls ``handle`` synchronously and inline with the
+        # instrumented call. That is deliberate: a BEFORE_MODEL / TOOL_CALL
+        # governance decision must complete (and be able to BLOCK) *before* the
+        # underlying LLM / tool call proceeds — an async, out-of-band check
+        # could not gate it. The evaluator is expected to be fast.
         if isinstance(event, LLMChatStartEvent):
             self._callbacks.before_model(event.messages)
         elif isinstance(event, LLMChatEndEvent):
@@ -139,20 +191,41 @@ class GovernanceCallbacks:
         self._evaluator = evaluator
         self._agent_name = agent_name
         self._session_id = session_id
-        self._trace_id = str(uuid4())
+        # ``trace_id`` is intentionally NOT held here. A single uuid minted at
+        # install time would be identical for every call. Trace correlation is
+        # owned by the layer below (OTel span / HTTP resolve at call time),
+        # matching the LangChain adapter.
         self._session_state: Dict[str, Any] = {"tool_calls": 0, "llm_calls": 0}
+
+    def rebind(
+        self,
+        evaluator: EvaluatorProtocol,
+        agent_name: str,
+        session_id: str,
+    ) -> None:
+        """Re-point this callback set at a new run.
+
+        Called when the process-global handler is reused for a fresh runtime —
+        updates the evaluator and identifiers and resets the per-run counters so
+        state does not bleed across runtimes.
+        """
+        self._evaluator = evaluator
+        self._agent_name = agent_name
+        self._session_id = session_id
+        self._session_state = {"tool_calls": 0, "llm_calls": 0}
 
     def before_model(self, messages: Any) -> None:
         """Evaluate BEFORE_MODEL on the latest input message (see ADK rationale)."""
         try:
-            self._session_state["llm_calls"] = (
-                self._session_state.get("llm_calls", 0) + 1
-            )
             self._evaluator.evaluate_before_model(
                 model_input=_latest_message_text(messages),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
+            )
+            # Count only calls that passed governance — a DENY raises above, so
+            # a blocked call must not inflate the counter.
+            self._session_state["llm_calls"] = (
+                self._session_state.get("llm_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -166,7 +239,6 @@ class GovernanceCallbacks:
                 model_output=_response_text(response),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
@@ -176,16 +248,17 @@ class GovernanceCallbacks:
     def tool_call(self, tool: Any, arguments: Any) -> None:
         """Evaluate TOOL_CALL with the tool name + arguments."""
         try:
-            self._session_state["tool_calls"] = (
-                self._session_state.get("tool_calls", 0) + 1
-            )
             self._evaluator.evaluate_tool_call(
                 tool_name=getattr(tool, "name", None) or "unknown",
                 tool_args=_coerce_args(arguments),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
                 session_state=self._session_state,
+            )
+            # Count only calls that passed governance; the evaluator saw the
+            # count of prior tool calls, and a DENY raises before this bump.
+            self._session_state["tool_calls"] = (
+                self._session_state.get("tool_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -256,4 +329,5 @@ __all__: List[str] = [
     "GovernanceCallbacks",
     "GovernanceEventHandler",
     "install_governance",
+    "uninstall_governance",
 ]

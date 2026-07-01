@@ -12,9 +12,14 @@ state is mutated.
 
 from __future__ import annotations
 
-from .event_handler import GovernanceEventHandler, install_governance
+from .event_handler import (
+    GovernanceEventHandler,
+    install_governance,
+    uninstall_governance,
+)
 
 __all__ = [
     "GovernanceEventHandler",
     "install_governance",
+    "uninstall_governance",
 ]

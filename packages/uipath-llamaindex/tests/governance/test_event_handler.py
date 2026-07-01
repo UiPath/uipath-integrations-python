@@ -368,3 +368,56 @@ def test_non_block_exception_is_swallowed(caplog):
         logger.removeHandler(caplog.handler)
         logger.setLevel(prev)
     assert any("governance check failed" in r.message for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# coverage: swallow on after_model/tool_call + extraction edges
+# --------------------------------------------------------------------------
+
+
+class _Boom:
+    """Evaluator whose every evaluate_* raises a non-block error."""
+
+    def __getattr__(self, _name: str) -> Any:
+        def _raise(*_a: Any, **_k: Any) -> None:
+            raise RuntimeError("evaluator bug")
+
+        return _raise
+
+
+def test_after_model_and_tool_call_swallow_non_block_errors(caplog):
+    cb = GovernanceCallbacks(evaluator=_Boom(), agent_name="a", session_id="s")
+    logger = logging.getLogger("uipath_llamaindex.governance.event_handler")
+    logger.addHandler(caplog.handler)
+    prev = logger.level
+    logger.setLevel(logging.WARNING)
+    try:
+        cb.after_model(SimpleNamespace(message=SimpleNamespace(content="x")))
+        cb.tool_call(SimpleNamespace(name="t"), {})
+    finally:
+        logger.removeHandler(caplog.handler)
+        logger.setLevel(prev)
+    assert sum("governance check failed" in r.message for r in caplog.records) >= 2
+
+
+def test_extraction_edges():
+    from uipath_llamaindex.governance.event_handler import (
+        _latest_message_text,
+        _message_text,
+        _response_text,
+    )
+
+    # _message_text: None / str / object with no content or blocks -> str()
+    assert _message_text(None) == ""
+    assert _message_text("plain") == "plain"
+    assert isinstance(_message_text(SimpleNamespace(content=None, blocks=None)), str)
+    # _latest_message_text: single (non-list) message
+    assert _latest_message_text(SimpleNamespace(content="solo")) == "solo"
+    # _response_text: None / .message / .text fallback / str() fallback
+    assert _response_text(None) == ""
+    assert (
+        _response_text(SimpleNamespace(message=SimpleNamespace(content="viamsg")))
+        == "viamsg"
+    )
+    assert _response_text(SimpleNamespace(message=None, text="viatext")) == "viatext"
+    assert isinstance(_response_text(SimpleNamespace(message=None, text=None)), str)

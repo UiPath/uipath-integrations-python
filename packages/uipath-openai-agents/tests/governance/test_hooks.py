@@ -38,29 +38,29 @@ class FakeEvaluator:
 
     def __init__(self, block_on: str | None = None) -> None:
         self.block_on = block_on
-        self.calls: List[tuple[str, dict]] = []
+        self.calls: List[tuple[str, dict[str, Any]]] = []
 
     def _record(self, hook: str, **kwargs: Any) -> None:
         self.calls.append((hook, kwargs))
         if self.block_on == hook:
             raise GovernanceBlockException("blocked")  # type: ignore[call-arg]
 
-    def evaluate_before_agent(self, **kwargs: Any) -> None:
+    def evaluate_before_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_agent", **kwargs)
 
-    def evaluate_after_agent(self, **kwargs: Any) -> None:
+    def evaluate_after_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_agent", **kwargs)
 
-    def evaluate_before_model(self, **kwargs: Any) -> None:
+    def evaluate_before_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_model", **kwargs)
 
-    def evaluate_after_model(self, **kwargs: Any) -> None:
+    def evaluate_after_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_model", **kwargs)
 
-    def evaluate_tool_call(self, **kwargs: Any) -> None:
+    def evaluate_tool_call(self, *args: Any, **kwargs: Any) -> Any:
         self._record("tool_call", **kwargs)
 
-    def evaluate_after_tool(self, **kwargs: Any) -> None:
+    def evaluate_after_tool(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_tool", **kwargs)
 
 
@@ -98,17 +98,17 @@ class RecordingHooks:
         self.seen.append("on_tool_end")
 
 
-def _msg(text: str, role: str = "user") -> dict:
+def _msg(text: str, role: str = "user") -> dict[str, Any]:
     """A response input item carrying plain string content."""
     return {"role": role, "content": text}
 
 
-def _msg_parts(*texts: str, role: str = "user") -> dict:
+def _msg_parts(*texts: str, role: str = "user") -> dict[str, Any]:
     """A response input item carrying a list of text parts."""
     return {"role": role, "content": [{"type": "input_text", "text": t} for t in texts]}
 
 
-def _function_call(name: str, arguments: str) -> dict:
+def _function_call(name: str, arguments: str) -> dict[str, Any]:
     return {"type": "function_call", "name": name, "arguments": arguments}
 
 
@@ -161,7 +161,7 @@ def test_install_governance_is_idempotent():
 def test_install_governance_chains_existing_hooks():
     agent = FakeAgent()
     user_hooks = RecordingHooks()
-    agent.hooks = user_hooks
+    agent.hooks = user_hooks  # type: ignore[assignment]  # test double, not a real AgentHooks
     install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
     assert isinstance(agent.hooks, GovernanceAgentHooks)
     assert agent.hooks._inner is user_hooks
@@ -385,11 +385,14 @@ async def test_non_block_exception_is_swallowed(caplog):
 
 
 async def test_hooks_return_none():
+    # hooks are pass-through (return None) — they never short-circuit the run.
+    # (the inline type: ignores below silence mypy's func-returns-value on the
+    # None-returning hooks; the runtime assert documents the contract.)
     cb = _make_hooks(FakeEvaluator())
-    assert await cb.on_llm_start(None, FakeAgent(), None, []) is None
-    assert await cb.on_llm_end(None, FakeAgent(), SimpleNamespace(output=[])) is None
-    assert await cb.on_tool_start(None, FakeAgent(), FakeTool("t")) is None
-    assert await cb.on_tool_end(None, FakeAgent(), FakeTool("t"), {}) is None
+    assert await cb.on_llm_start(None, FakeAgent(), None, []) is None  # type: ignore[func-returns-value]
+    assert await cb.on_llm_end(None, FakeAgent(), SimpleNamespace(output=[])) is None  # type: ignore[func-returns-value]
+    assert await cb.on_tool_start(None, FakeAgent(), FakeTool("t")) is None  # type: ignore[func-returns-value]
+    assert await cb.on_tool_end(None, FakeAgent(), FakeTool("t"), {}) is None  # type: ignore[func-returns-value]
 
 
 # --------------------------------------------------------------------------

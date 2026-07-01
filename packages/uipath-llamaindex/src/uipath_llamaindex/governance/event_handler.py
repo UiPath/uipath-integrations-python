@@ -29,9 +29,13 @@ evaluator. That is a property of LlamaIndex's global instrumentation and matches
 the one-workflow-per-process runtime model.
 
 LlamaIndex does **not** emit a tool-*end* instrumentation event, so AFTER_TOOL
-is not wired here; a tool's result is governed at the next ``LLMChatStartEvent``
-where it is fed back to the model as input (analogous to how the OpenAI adapter
-handles its missing tool-args).
+is not wired here; a tool's result is instead governed at the next
+``LLMChatStartEvent`` where it is fed back to the model as input. This holds
+only when the tool result is the **latest** message in that request (the usual
+case — BEFORE_MODEL scans the latest message, see
+:func:`_latest_message_text`); if the framework injects later messages before
+the next model call, an intervening tool result is not separately scanned.
+This is the LlamaIndex analogue of the OpenAI adapter's missing tool-args.
 
 Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
 governance host and are intentionally not fired here.

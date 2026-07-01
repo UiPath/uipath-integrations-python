@@ -281,7 +281,7 @@ def _latest_message_text(messages: Any) -> str:
 
 
 def _message_text(message: Any) -> str:
-    """Pull text from a ``ChatMessage`` (``.content``) or a bare string."""
+    """Pull text from a ``ChatMessage`` (``.content`` / ``.blocks``) or a str."""
     if message is None:
         return ""
     if isinstance(message, str):
@@ -289,7 +289,17 @@ def _message_text(message: Any) -> str:
     content = getattr(message, "content", None)
     if isinstance(content, str) and content:
         return content[:_BEFORE_MODEL_TEXT_CAP]
-    # Newer ChatMessage carries typed blocks; fall back to str().
+    # Multimodal ChatMessage carries typed blocks. Walk them for text (a
+    # TextBlock exposes ``.text``) rather than ``str(message)``, which would
+    # serialize the pydantic repr — dict-syntax noise that pollutes the
+    # regex-scanned blob. Non-text blocks (image/binary) have no scannable text.
+    blocks = getattr(message, "blocks", None)
+    if isinstance(blocks, (list, tuple)):
+        texts = [
+            t for b in blocks if isinstance((t := getattr(b, "text", None)), str) and t
+        ]
+        if texts:
+            return "\n".join(texts)[:_BEFORE_MODEL_TEXT_CAP]
     return str(message)[:_BEFORE_MODEL_TEXT_CAP]
 
 
@@ -307,10 +317,14 @@ def _response_text(response: Any) -> str:
 
 
 def _coerce_args(arguments: Any) -> Dict[str, Any]:
-    """Normalise tool arguments (JSON string / Mapping / None) to a dict.
+    """Normalise tool arguments (JSON string / Mapping / list / None) to a dict.
 
-    ``AgentToolCallEvent.arguments`` is a JSON-encoded string; other call
-    sites may hand a dict directly.
+    ``AgentToolCallEvent.arguments`` is usually a JSON-encoded string; other
+    call sites may hand a dict directly. Non-dict payloads are preserved (not
+    dropped) so an arg-based policy can still scan them: a list-shaped arg
+    (common with MCP tools) is wrapped under ``_``, and malformed JSON is kept
+    raw under ``_raw`` — a payload governance can't parse must not be a way to
+    slip past it.
     """
     if arguments is None:
         return {}
@@ -321,8 +335,9 @@ def _coerce_args(arguments: Any) -> Dict[str, Any]:
             parsed = json.loads(arguments)
             return parsed if isinstance(parsed, dict) else {"_": parsed}
         except (TypeError, ValueError):
-            return {}
-    return {}
+            return {"_raw": arguments}
+    # list / tuple / other structured args — preserve rather than drop to {}.
+    return {"_": arguments}
 
 
 __all__: List[str] = [

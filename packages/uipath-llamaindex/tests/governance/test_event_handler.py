@@ -295,7 +295,26 @@ def test_coerce_args_dict_passthrough():
 
 def test_coerce_args_none_and_bad():
     assert _coerce_args(None) == {}
-    assert _coerce_args("not json") == {}
+    # malformed JSON is preserved raw (not dropped) so policies can still scan it
+    assert _coerce_args("not json") == {"_raw": "not json"}
+
+
+def test_coerce_args_preserves_list_shaped_args():
+    # list-shaped tool args (common with MCP tools) must not be dropped to {}
+    assert _coerce_args(["a", "b"]) == {"_": ["a", "b"]}
+    assert _coerce_args('["a", "b"]') == {"_": ["a", "b"]}
+
+
+def test_message_text_walks_blocks_when_content_empty():
+    # a multimodal message whose .content is empty falls back to its text
+    # blocks, not str(message) (which would serialize a pydantic repr)
+    from uipath_llamaindex.governance.event_handler import _message_text
+
+    msg = SimpleNamespace(
+        content=None,
+        blocks=[SimpleNamespace(text="block one"), SimpleNamespace(text="block two")],
+    )
+    assert _message_text(msg) == "block one\nblock two"
 
 
 # --------------------------------------------------------------------------

@@ -32,29 +32,29 @@ class FakeEvaluator:
 
     def __init__(self, block_on: str | None = None) -> None:
         self.block_on = block_on
-        self.calls: List[tuple[str, dict]] = []
+        self.calls: List[tuple[str, dict[str, Any]]] = []
 
     def _record(self, hook: str, **kwargs: Any) -> None:
         self.calls.append((hook, kwargs))
         if self.block_on == hook:
             raise GovernanceBlockException("blocked")  # type: ignore[call-arg]
 
-    def evaluate_before_agent(self, **kwargs: Any) -> None:
+    def evaluate_before_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_agent", **kwargs)
 
-    def evaluate_after_agent(self, **kwargs: Any) -> None:
+    def evaluate_after_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_agent", **kwargs)
 
-    def evaluate_before_model(self, **kwargs: Any) -> None:
+    def evaluate_before_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_model", **kwargs)
 
-    def evaluate_after_model(self, **kwargs: Any) -> None:
+    def evaluate_after_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_model", **kwargs)
 
-    def evaluate_tool_call(self, **kwargs: Any) -> None:
+    def evaluate_tool_call(self, *args: Any, **kwargs: Any) -> Any:
         self._record("tool_call", **kwargs)
 
-    def evaluate_after_tool(self, **kwargs: Any) -> None:
+    def evaluate_after_tool(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_tool", **kwargs)
 
 
@@ -429,9 +429,9 @@ def test_non_block_exception_is_swallowed(caplog):
             raise RuntimeError("evaluator bug")
 
     cb = GovernanceCallbacks(
-        evaluator=Boom(),
+        evaluator=Boom(),  # type: ignore[arg-type]  # minimal test double
         agent_name="a",
-        session_id="s",  # type: ignore[arg-type]
+        session_id="s",
     )
     with caplog.at_level(logging.WARNING):
         # must NOT raise — a governance bug can't break the agent run
@@ -440,8 +440,11 @@ def test_non_block_exception_is_swallowed(caplog):
 
 
 def test_callbacks_return_none():
+    # callbacks return None (ADK: a None return means "don't override the
+    # model/tool"); the type: ignores silence mypy's func-returns-value on the
+    # None-returning callbacks while the asserts document that contract.
     cb = _make_callbacks(FakeEvaluator())
-    assert cb.before_model(None, SimpleNamespace(contents=[])) is None
-    assert cb.after_model(None, SimpleNamespace(partial=False, content=None)) is None
-    assert cb.before_tool(FakeTool("t"), {}, None) is None
-    assert cb.after_tool(FakeTool("t"), {}, None, {}) is None
+    assert cb.before_model(None, SimpleNamespace(contents=[])) is None  # type: ignore[func-returns-value]
+    assert cb.after_model(None, SimpleNamespace(partial=False, content=None)) is None  # type: ignore[func-returns-value]
+    assert cb.before_tool(FakeTool("t"), {}, None) is None  # type: ignore[func-returns-value]
+    assert cb.after_tool(FakeTool("t"), {}, None, {}) is None  # type: ignore[func-returns-value]

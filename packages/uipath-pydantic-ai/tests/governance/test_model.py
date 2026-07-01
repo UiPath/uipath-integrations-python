@@ -87,7 +87,9 @@ def _hooks(ev: FakeEvaluator) -> List[str]:
 
 def test_install_governance_wraps_model():
     agent = Agent(model=TestModel())
-    returned = install_governance(agent, FakeEvaluator(), agent_name="x", session_id="s")
+    returned = install_governance(
+        agent, FakeEvaluator(), agent_name="x", session_id="s"
+    )
     assert returned is agent
     assert isinstance(agent.model, GovernanceModel)
 
@@ -123,7 +125,9 @@ def _factory_without_init():
 async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
     from uipath_pydantic_ai.runtime import factory as factory_mod
 
-    monkeypatch.setattr(factory_mod, "UiPathPydanticAIRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(
+        factory_mod, "UiPathPydanticAIRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
     agent = Agent(model=TestModel())
     await _factory_without_init()._create_runtime_instance(
         agent=agent, runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
@@ -134,7 +138,9 @@ async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
 async def test_factory_skips_governance_without_evaluator(monkeypatch):
     from uipath_pydantic_ai.runtime import factory as factory_mod
 
-    monkeypatch.setattr(factory_mod, "UiPathPydanticAIRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(
+        factory_mod, "UiPathPydanticAIRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
     agent = Agent(model=TestModel())
     original = agent.model
     await _factory_without_init()._create_runtime_instance(
@@ -165,7 +171,11 @@ def test_on_request_fires_after_tool_for_tool_return():
     cb = _make_callbacks(ev)
     messages = [
         ModelRequest(
-            parts=[ToolReturnPart(tool_name="lookup", content={"balance": "1000"}, tool_call_id="c1")]
+            parts=[
+                ToolReturnPart(
+                    tool_name="lookup", content={"balance": "1000"}, tool_call_id="c1"
+                )
+            ]
         )
     ]
     cb.on_request(messages)
@@ -278,6 +288,102 @@ async def test_governance_model_request_stream_block_propagates():
             assert stream is not None
 
 
+async def test_governance_model_request_stream_governs_finalized_response():
+    """Streaming happy path: BEFORE_MODEL fires up front, and AFTER_MODEL runs
+    on the finalized response assembled after the caller consumes the stream."""
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    ev = FakeEvaluator()
+    cb = _make_callbacks(ev)
+    final = ModelResponse(parts=[TextPart(content="the streamed answer")])
+
+    class FakeWrapped:
+        @asynccontextmanager
+        async def request_stream(self, *_a, **_k):
+            yield SimpleNamespace(get=lambda: final)
+
+    gm = GovernanceModel.__new__(GovernanceModel)
+    gm.wrapped = FakeWrapped()  # type: ignore[attr-defined]
+    gm._callbacks = cb
+    messages = [ModelRequest(parts=[UserPromptPart(content="the question")])]
+
+    async with gm.request_stream(messages, None, None) as stream:
+        # BEFORE_MODEL already fired; AFTER_MODEL deferred until the stream
+        # context exits (final response is assembled).
+        assert _hooks(ev) == ["before_model"]
+        assert stream is not None
+
+    assert _hooks(ev) == ["before_model", "after_model"]
+    assert ev.calls[-1][1]["model_output"] == "the streamed answer"
+
+
+async def test_governance_model_request_stream_governs_even_if_consumer_raises():
+    """If the consumer's ``async for`` raises, AFTER_MODEL still fires (finally),
+    and the consumer's exception propagates."""
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    ev = FakeEvaluator()
+    cb = _make_callbacks(ev)
+    final = ModelResponse(parts=[TextPart(content="partial answer")])
+
+    class FakeWrapped:
+        @asynccontextmanager
+        async def request_stream(self, *_a, **_k):
+            yield SimpleNamespace(get=lambda: final)
+
+    gm = GovernanceModel.__new__(GovernanceModel)
+    gm.wrapped = FakeWrapped()  # type: ignore[attr-defined]
+    gm._callbacks = cb
+    messages = [ModelRequest(parts=[UserPromptPart(content="hi")])]
+
+    with pytest.raises(RuntimeError, match="consumer blew up"):
+        async with gm.request_stream(messages, None, None):
+            raise RuntimeError("consumer blew up")
+
+    assert "after_model" in _hooks(ev)  # ran despite the consumer error
+
+
+def test_latest_request_skips_trailing_model_response():
+    """History can end with a ModelResponse (mid tool round-trip); BEFORE_MODEL
+    must scan the last ModelRequest, not the response."""
+    ev = FakeEvaluator()
+    cb = _make_callbacks(ev)
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="the real question")]),
+        ModelResponse(parts=[TextPart(content="assistant reply")]),
+    ]
+    cb.on_request(messages)
+    assert ev.calls[0][1]["model_input"] == "the real question"
+
+
+def test_tool_call_and_after_tool_pass_tool_call_id():
+    ev = FakeEvaluator()
+    cb = _make_callbacks(ev)
+    cb.on_response(
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="t", args={}, tool_call_id="call-42")]
+        )
+    )
+    tool_call = [kw for h, kw in ev.calls if h == "tool_call"][0]
+    assert tool_call["tool_call_id"] == "call-42"
+
+    ev2 = FakeEvaluator()
+    cb2 = _make_callbacks(ev2)
+    cb2.on_request(
+        [
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(tool_name="t", content="ok", tool_call_id="call-7")
+                ]
+            )
+        ]
+    )
+    after_tool = [kw for h, kw in ev2.calls if h == "after_tool"][0]
+    assert after_tool["tool_call_id"] == "call-7"
+
+
 # --------------------------------------------------------------------------
 # helpers + enforcement
 # --------------------------------------------------------------------------
@@ -300,7 +406,9 @@ def test_block_in_tool_call_propagates():
     cb = _make_callbacks(FakeEvaluator(block_on="tool_call"))
     with pytest.raises(GovernanceBlockException):
         cb.on_response(
-            ModelResponse(parts=[ToolCallPart(tool_name="t", args={}, tool_call_id="c1")])
+            ModelResponse(
+                parts=[ToolCallPart(tool_name="t", args={}, tool_call_id="c1")]
+            )
         )
 
 

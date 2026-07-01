@@ -40,12 +40,12 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, List
-from uuid import uuid4
+from typing import Any, AsyncIterator, Dict, Iterable, List
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
     BuiltinToolCallPart,
+    ModelRequest,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -93,6 +93,11 @@ def install_governance(
     callbacks = GovernanceCallbacks(
         evaluator=evaluator, agent_name=agent_name, session_id=session_id
     )
+    # ``agent.model`` is a property whose setter stores ``_model``; the agent
+    # re-reads ``self.model`` on every run (``_get_model``), so this in-place
+    # wrap takes effect for all subsequent runs with no stale reference. A model
+    # supplied per-run (``agent.run(model=...)``) bypasses this wrap — that path
+    # is governed by whatever model the caller passes, not by us.
     agent.model = GovernanceModel(model, callbacks)
     logger.debug("Wrapped Pydantic AI agent model with governance")
     return agent
@@ -130,17 +135,28 @@ class GovernanceModel(WrapperModel):
         async with super().request_stream(
             messages, model_settings, model_request_parameters, run_context
         ) as stream:
-            yield stream
-        # After the caller has consumed the stream, the final response is
-        # assembled — govern it the same as the non-streaming path. A DENY
-        # decision must still abort the run, so the block exception propagates;
-        # any other governance error is logged and swallowed.
-        try:
-            self._callbacks.on_response(stream.get())
-        except GovernanceBlockException:
-            raise
-        except Exception as e:  # noqa: BLE001 - a governance bug must not break the run
-            logger.warning("after-stream governance check failed (continuing): %s", e)
+            try:
+                yield stream
+            finally:
+                # Once the caller has consumed the stream the final response is
+                # assembled — govern it the same as the non-streaming path. This
+                # runs in a ``finally`` so AFTER_MODEL / TOOL_CALL still fire
+                # even if the consumer's ``async for`` raised partway through.
+                #
+                # Streaming governance is inherently post-hoc: the tokens have
+                # already been streamed to the caller by the time the response
+                # is complete, so a DENY here aborts the run but cannot un-send
+                # what was already emitted. The block exception still
+                # propagates; any other governance error is logged and swallowed
+                # so a governance bug can't break the run.
+                try:
+                    self._callbacks.on_response(stream.get())
+                except GovernanceBlockException:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "after-stream governance check failed (continuing): %s", e
+                    )
 
 
 class GovernanceCallbacks:
@@ -160,7 +176,10 @@ class GovernanceCallbacks:
         self._evaluator = evaluator
         self._agent_name = agent_name
         self._session_id = session_id
-        self._trace_id = str(uuid4())
+        # ``trace_id`` is intentionally NOT held here. A single uuid minted at
+        # install time would be identical for every call. Trace correlation is
+        # owned by the layer below (OTel span / HTTP resolve at call time),
+        # matching the LangChain adapter.
         self._session_state: Dict[str, Any] = {"tool_calls": 0, "llm_calls": 0}
 
     # ----- before the model call --------------------------------------
@@ -180,7 +199,11 @@ class GovernanceCallbacks:
         self._before_model(self._parts_input_text(parts))
         for part in parts:
             if isinstance(part, ToolReturnPart):
-                self._after_tool(part.tool_name or "unknown", part.content)
+                self._after_tool(
+                    part.tool_name or "unknown",
+                    part.content,
+                    tool_call_id=getattr(part, "tool_call_id", None),
+                )
 
     # ----- after the model call ---------------------------------------
 
@@ -190,20 +213,25 @@ class GovernanceCallbacks:
         self._after_model(self._response_text(parts))
         for part in parts:
             if isinstance(part, (ToolCallPart, BuiltinToolCallPart)):
-                self._tool_call(part.tool_name or "unknown", part.args)
+                self._tool_call(
+                    part.tool_name or "unknown",
+                    part.args,
+                    tool_call_id=getattr(part, "tool_call_id", None),
+                )
 
     # ----- individual evaluate_* wrappers (block-propagate, else swallow) --
 
     def _before_model(self, text: str) -> None:
         try:
-            self._session_state["llm_calls"] = (
-                self._session_state.get("llm_calls", 0) + 1
-            )
             self._evaluator.evaluate_before_model(
                 model_input=text,
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
+            )
+            # Count only calls that passed governance — a DENY raises above, so
+            # a blocked call must not inflate the counter.
+            self._session_state["llm_calls"] = (
+                self._session_state.get("llm_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -216,39 +244,44 @@ class GovernanceCallbacks:
                 model_output=text,
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
         except Exception as e:  # noqa: BLE001
             logger.warning("after_model governance check failed (continuing): %s", e)
 
-    def _tool_call(self, tool_name: str, args: Any) -> None:
+    def _tool_call(
+        self, tool_name: str, args: Any, tool_call_id: str | None = None
+    ) -> None:
         try:
-            self._session_state["tool_calls"] = (
-                self._session_state.get("tool_calls", 0) + 1
-            )
             self._evaluator.evaluate_tool_call(
                 tool_name=tool_name,
                 tool_args=_coerce_args(args),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
                 session_state=self._session_state,
+                tool_call_id=tool_call_id,
+            )
+            # Count only calls that passed governance; the evaluator saw the
+            # count of prior tool calls, and a DENY raises before this bump.
+            self._session_state["tool_calls"] = (
+                self._session_state.get("tool_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
         except Exception as e:  # noqa: BLE001
             logger.warning("tool_call governance check failed (continuing): %s", e)
 
-    def _after_tool(self, tool_name: str, content: Any) -> None:
+    def _after_tool(
+        self, tool_name: str, content: Any, tool_call_id: str | None = None
+    ) -> None:
         try:
             self._evaluator.evaluate_after_tool(
                 tool_name=tool_name,
                 tool_result="" if content is None else _stringify(content),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
+                tool_call_id=tool_call_id,
             )
         except GovernanceBlockException:
             raise
@@ -259,34 +292,48 @@ class GovernanceCallbacks:
 
     @staticmethod
     def _latest_request(messages: Any) -> Any:
-        """Return the most recent message (a ``ModelRequest``) or ``None``."""
+        """Return the most recent ``ModelRequest`` message, or ``None``.
+
+        Scans from the end for the last ``ModelRequest`` rather than blindly
+        taking ``messages[-1]``: the history can end with a ``ModelResponse``
+        (e.g. mid tool-call round-trips), and treating that as request input
+        would scan the wrong side of the exchange.
+        """
         if not messages or not isinstance(messages, (list, tuple)):
             return None
-        return messages[-1]
+        for message in reversed(messages):
+            if isinstance(message, ModelRequest):
+                return message
+        return None
 
     @classmethod
     def _parts_input_text(cls, parts: Any) -> str:
         """Join governance-relevant input text from a request message's parts.
 
         Covers user prompts and tool-return content (the model's input on a
-        follow-up turn). Capped at :data:`_BEFORE_MODEL_TEXT_CAP`.
+        follow-up turn). Joined with a running cap so an oversized tool-return
+        can't build a multi-megabyte string before the final slice.
         """
-        collected: List[str] = []
-        for part in parts:
-            if isinstance(part, UserPromptPart):
-                collected.append(_content_text(part.content))
-            elif isinstance(part, ToolReturnPart):
-                collected.append(_stringify(part.content))
-        return "\n".join(p for p in collected if p)[:_BEFORE_MODEL_TEXT_CAP]
+
+        def _pieces() -> Iterable[str]:
+            for part in parts:
+                if isinstance(part, UserPromptPart):
+                    yield _content_text(part.content)
+                elif isinstance(part, ToolReturnPart):
+                    yield _stringify(part.content)
+
+        return _join_within_cap(_pieces(), _BEFORE_MODEL_TEXT_CAP)
 
     @classmethod
     def _response_text(cls, parts: Any) -> str:
-        """Join ``TextPart`` content from a model response's parts."""
-        collected: List[str] = []
-        for part in parts:
-            if isinstance(part, TextPart) and part.content:
-                collected.append(part.content)
-        return "\n".join(collected)[:_BEFORE_MODEL_TEXT_CAP]
+        """Join ``TextPart`` content from a model response's parts (running cap)."""
+
+        def _pieces() -> Iterable[str]:
+            for part in parts:
+                if isinstance(part, TextPart) and part.content:
+                    yield part.content
+
+        return _join_within_cap(_pieces(), _BEFORE_MODEL_TEXT_CAP)
 
 
 # --------------------------------------------------------------------------
@@ -294,22 +341,42 @@ class GovernanceCallbacks:
 # --------------------------------------------------------------------------
 
 
+def _join_within_cap(pieces: Iterable[str], cap: int) -> str:
+    """Join non-empty ``pieces`` with newlines, stopping once ``cap`` is hit.
+
+    Bounds the work (and the allocation) to ``cap`` characters instead of
+    building the full string and slicing afterwards.
+    """
+    collected: List[str] = []
+    remaining = cap
+    for piece in pieces:
+        if remaining <= 0:
+            break
+        if not piece:
+            continue
+        collected.append(piece[:remaining])
+        remaining -= len(piece) + 1
+    return "\n".join(collected)[:cap]
+
+
 def _content_text(content: Any) -> str:
     """Render a ``UserPromptPart.content`` (str or list of items) as text."""
     if content is None:
         return ""
     if isinstance(content, str):
-        return content
+        return content[:_BEFORE_MODEL_TEXT_CAP]
     if isinstance(content, (list, tuple)):
-        out: List[str] = []
-        for item in content:
-            if isinstance(item, str):
-                out.append(item)
-            else:
-                text = getattr(item, "text", None)
-                if isinstance(text, str):
-                    out.append(text)
-        return "\n".join(out)
+
+        def _pieces() -> Iterable[str]:
+            for item in content:
+                if isinstance(item, str):
+                    yield item
+                else:
+                    text = getattr(item, "text", None)
+                    if isinstance(text, str):
+                        yield text
+
+        return _join_within_cap(_pieces(), _BEFORE_MODEL_TEXT_CAP)
     return _stringify(content)
 
 
@@ -328,11 +395,15 @@ def _coerce_args(args: Any) -> Dict[str, Any]:
     return {}
 
 
-def _stringify(value: Any) -> str:
-    """Render a dict / object payload as compact, scannable text."""
+def _stringify(value: Any, cap: int = _BEFORE_MODEL_TEXT_CAP) -> str:
+    """Render a dict / object payload as compact, scannable text, capped.
+
+    Bounded by ``cap`` so an oversized tool result / return content can't hand
+    a multi-megabyte string to the evaluator.
+    """
     if isinstance(value, str):
-        return value
+        return value[:cap]
     try:
-        return json.dumps(value, default=str, ensure_ascii=False)
+        return json.dumps(value, default=str, ensure_ascii=False)[:cap]
     except (TypeError, ValueError):
-        return str(value)
+        return str(value)[:cap]

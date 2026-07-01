@@ -36,29 +36,29 @@ class FakeEvaluator:
 
     def __init__(self, block_on: str | None = None) -> None:
         self.block_on = block_on
-        self.calls: List[tuple[str, dict]] = []
+        self.calls: List[tuple[str, dict[str, Any]]] = []
 
     def _record(self, hook: str, **kwargs: Any) -> None:
         self.calls.append((hook, kwargs))
         if self.block_on == hook:
             raise GovernanceBlockException("blocked")  # type: ignore[call-arg]
 
-    def evaluate_before_agent(self, **kwargs: Any) -> None:
+    def evaluate_before_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_agent", **kwargs)
 
-    def evaluate_after_agent(self, **kwargs: Any) -> None:
+    def evaluate_after_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_agent", **kwargs)
 
-    def evaluate_before_model(self, **kwargs: Any) -> None:
+    def evaluate_before_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_model", **kwargs)
 
-    def evaluate_after_model(self, **kwargs: Any) -> None:
+    def evaluate_after_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_model", **kwargs)
 
-    def evaluate_tool_call(self, **kwargs: Any) -> None:
+    def evaluate_tool_call(self, *args: Any, **kwargs: Any) -> Any:
         self._record("tool_call", **kwargs)
 
-    def evaluate_after_tool(self, **kwargs: Any) -> None:
+    def evaluate_after_tool(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_tool", **kwargs)
 
 
@@ -238,7 +238,7 @@ async def test_chat_middleware_brackets_call_with_before_and_after():
     async def call_next() -> None:
         order.append("model_call")
 
-    context = SimpleNamespace(
+    context: Any = SimpleNamespace(
         messages=[_msg("old"), _msg("the question")],
         result=SimpleNamespace(text="the answer"),
     )
@@ -255,7 +255,9 @@ async def test_chat_middleware_caps_text():
     ev = FakeEvaluator()
     mw = GovernanceChatMiddleware(_make_callbacks(ev))
     huge = "x" * (_BEFORE_MODEL_TEXT_CAP + 5000)
-    context = SimpleNamespace(messages=[_msg(huge)], result=SimpleNamespace(text=""))
+    context: Any = SimpleNamespace(
+        messages=[_msg(huge)], result=SimpleNamespace(text="")
+    )
     await mw.process(context, _noop_next)
     assert len(ev.calls[0][1]["model_input"]) <= _BEFORE_MODEL_TEXT_CAP
 
@@ -269,7 +271,9 @@ async def test_after_model_runs_even_when_model_call_raises():
     async def boom_next() -> None:
         raise RuntimeError("model exploded")
 
-    context = SimpleNamespace(messages=[_msg("hi")], result=SimpleNamespace(text=""))
+    context: Any = SimpleNamespace(
+        messages=[_msg("hi")], result=SimpleNamespace(text="")
+    )
     with pytest.raises(RuntimeError, match="model exploded"):
         await mw.process(context, boom_next)
     assert [h for h, _ in ev.calls] == ["before_model", "after_model"]
@@ -280,7 +284,7 @@ async def test_streaming_governs_finalized_response_via_result_hook():
     AFTER_MODEL runs from a stream_result_hook on the finalized ChatResponse."""
     ev = FakeEvaluator()
     mw = GovernanceChatMiddleware(_make_callbacks(ev))
-    context = SimpleNamespace(
+    context: Any = SimpleNamespace(
         messages=[_msg("the question")],
         stream=True,
         stream_result_hooks=[],
@@ -312,7 +316,7 @@ async def test_function_middleware_passes_name_args_and_result():
     async def call_next() -> None:
         order.append("tool_call")
 
-    context = SimpleNamespace(
+    context: Any = SimpleNamespace(
         function=FakeTool("transfer"),
         arguments={"amount": 50},
         result={"status": "ok"},
@@ -332,7 +336,7 @@ async def test_function_middleware_coerces_pydantic_args():
     ev = FakeEvaluator()
     mw = GovernanceFunctionMiddleware(_make_callbacks(ev))
     args = SimpleNamespace(model_dump=lambda: {"x": 1})
-    context = SimpleNamespace(function=FakeTool("t"), arguments=args, result=None)
+    context: Any = SimpleNamespace(function=FakeTool("t"), arguments=args, result=None)
     await mw.process(context, _noop_next)
     assert ev.calls[0][1]["tool_args"] == {"x": 1}
     assert ev.calls[1][1]["tool_result"] == ""  # None result → ""
@@ -345,7 +349,7 @@ async def test_after_tool_runs_even_when_tool_call_raises():
     async def boom_next() -> None:
         raise RuntimeError("tool exploded")
 
-    context = SimpleNamespace(function=FakeTool("t"), arguments={}, result=None)
+    context: Any = SimpleNamespace(function=FakeTool("t"), arguments={}, result=None)
     with pytest.raises(RuntimeError, match="tool exploded"):
         await mw.process(context, boom_next)
     assert [h for h, _ in ev.calls] == ["tool_call", "after_tool"]
@@ -374,7 +378,7 @@ async def test_block_in_before_model_aborts_before_call_next():
     async def call_next() -> None:
         called["next"] = True
 
-    context = SimpleNamespace(messages=[_msg("hi")], result=None)
+    context: Any = SimpleNamespace(messages=[_msg("hi")], result=None)
     with pytest.raises(GovernanceBlockException):
         await mw.process(context, call_next)
     assert called["next"] is False  # tool/model never ran
@@ -388,7 +392,7 @@ async def test_block_in_before_tool_aborts_before_call_next():
     async def call_next() -> None:
         called["next"] = True
 
-    context = SimpleNamespace(function=FakeTool("t"), arguments={}, result=None)
+    context: Any = SimpleNamespace(function=FakeTool("t"), arguments={}, result=None)
     with pytest.raises(GovernanceBlockException):
         await mw.process(context, call_next)
     assert called["next"] is False
@@ -402,5 +406,8 @@ async def test_non_block_exception_is_swallowed(caplog):
     cb = GovernanceCallbacks(evaluator=Boom(), agent_name="a", session_id="s")  # type: ignore[arg-type]
     mw = GovernanceChatMiddleware(cb)
     with caplog.at_level(logging.WARNING):
-        await mw.process(SimpleNamespace(messages=[_msg("x")], result=None), _noop_next)
+        await mw.process(
+            SimpleNamespace(messages=[_msg("x")], result=None),  # type: ignore[arg-type]
+            _noop_next,
+        )
     assert any("governance check failed" in r.message for r in caplog.records)

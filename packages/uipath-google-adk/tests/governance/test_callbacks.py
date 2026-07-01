@@ -61,13 +61,27 @@ class FakeEvaluator:
 class FakeLlmAgent:
     """Minimal stand-in for ``google.adk.agents.LlmAgent``."""
 
-    def __init__(self, name: str = "agent", sub_agents: List[Any] | None = None):
+    def __init__(
+        self,
+        name: str = "agent",
+        sub_agents: List[Any] | None = None,
+        tools: List[Any] | None = None,
+    ):
         self.name = name
         self.before_model_callback: Any = None
         self.after_model_callback: Any = None
         self.before_tool_callback: Any = None
         self.after_tool_callback: Any = None
         self.sub_agents = sub_agents or []
+        self.tools = tools or []
+
+
+class FakeAgentTool:
+    """Stand-in for ``google.adk.tools.agent_tool.AgentTool`` — wraps an agent."""
+
+    def __init__(self, agent: Any):
+        self.agent = agent
+        self.name = getattr(agent, "name", "agent_tool")
 
 
 class FakeContainerAgent:
@@ -154,6 +168,33 @@ def test_install_governance_warns_when_no_llm_agent(caplog):
     assert any("no LlmAgent" in r.message for r in caplog.records)
 
 
+def test_install_governance_follows_agent_tool_wrapped_agents():
+    """An agent exposed to another agent via AgentTool lives in ``tools``, not
+    ``sub_agents`` — it must still be governed."""
+    wrapped = FakeLlmAgent("researcher")
+    root = FakeLlmAgent("root", tools=[FakeAgentTool(wrapped)])
+    install_governance(root, FakeEvaluator(), agent_name="x", session_id="s")
+    assert isinstance(wrapped.before_model_callback, list)
+    assert len(wrapped.before_model_callback) == 1
+
+
+def test_install_governance_rebinds_session_on_cached_agent_reuse():
+    """The factory caches agents by entrypoint; a second new_runtime reuses the
+    same agent, so governance metadata must refresh to the new session."""
+    agent = FakeLlmAgent()
+    install_governance(agent, FakeEvaluator(), agent_name="a", session_id="session-1")
+    gov = agent.before_model_callback[0].__self__
+    assert gov._session_id == "session-1"
+
+    ev2 = FakeEvaluator()
+    install_governance(agent, ev2, agent_name="a", session_id="session-2")
+    # same callback object, not re-stacked, but re-pointed at the new run
+    assert len(agent.before_model_callback) == 1
+    assert agent.before_model_callback[0].__self__ is gov
+    assert gov._session_id == "session-2"
+    assert gov._evaluator is ev2
+
+
 # --------------------------------------------------------------------------
 # Factory wiring — the evaluator kwarg drives install_governance
 # --------------------------------------------------------------------------
@@ -191,7 +232,9 @@ def _stub_factory_runtime(monkeypatch, factory_mod):
         return _FakeSessionService()
 
     monkeypatch.setattr(
-        factory_mod.UiPathGoogleADKRuntimeFactory, "_get_session_service", _session_service
+        factory_mod.UiPathGoogleADKRuntimeFactory,
+        "_get_session_service",
+        _session_service,
     )
 
 
@@ -320,6 +363,16 @@ def test_after_tool_none_response():
     cb = _make_callbacks(ev)
     cb.after_tool(FakeTool("noop"), {}, tool_context=None, tool_response=None)
     assert ev.calls[-1][1]["tool_result"] == ""
+
+
+def test_blocked_tool_call_does_not_increment_counter():
+    """A DENY raises before the counter bump, so the count is not inflated."""
+    ev = FakeEvaluator(block_on="tool_call")
+    cb = _make_callbacks(ev)
+    with pytest.raises(GovernanceBlockException):
+        cb.before_tool(FakeTool("t"), {}, tool_context=None)
+    assert ev.calls[-1][1]["session_state"]["tool_calls"] == 0
+    assert cb._session_state["tool_calls"] == 0
 
 
 # --------------------------------------------------------------------------

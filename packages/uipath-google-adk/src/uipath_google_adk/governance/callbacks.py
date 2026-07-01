@@ -43,7 +43,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Dict, List
-from uuid import uuid4
 
 from uipath.core.adapters import EvaluatorProtocol
 from uipath.core.governance.exceptions import GovernanceBlockException
@@ -58,6 +57,10 @@ logger = logging.getLogger(__name__)
 # :meth:`GovernanceCallbacks._latest_request_text`.
 _BEFORE_MODEL_TEXT_CAP = 64000
 
+# Hard cap on how many nodes the agent-tree walk visits, guarding against
+# cyclic or pathologically deep trees. Hitting it is logged, not silent.
+_MAX_GRAPH_NODES = 1000
+
 # Native LlmAgent callback attribute names this adapter manages.
 _MODEL_BEFORE = "before_model_callback"
 _MODEL_AFTER = "after_model_callback"
@@ -68,6 +71,23 @@ _TOOL_AFTER = "after_tool_callback"
 def _is_governance_callable(fn: Any) -> bool:
     """True if ``fn`` is a bound method of a :class:`GovernanceCallbacks`."""
     return isinstance(getattr(fn, "__self__", None), GovernanceCallbacks)
+
+
+def _find_governance_callbacks(agent: Any) -> "GovernanceCallbacks | None":
+    """Return the :class:`GovernanceCallbacks` already installed on ``agent``.
+
+    Scans the four callback slots for a governance-owned callable and returns
+    the instance backing it, else ``None``. Used to detect a cached agent that
+    was governed by a previous ``new_runtime`` so its metadata can be refreshed
+    rather than left stale.
+    """
+    for attr in (_MODEL_BEFORE, _MODEL_AFTER, _TOOL_BEFORE, _TOOL_AFTER):
+        existing = getattr(agent, attr, None)
+        handlers = existing if isinstance(existing, list) else [existing]
+        for h in handlers:
+            if _is_governance_callable(h):
+                return h.__self__  # type: ignore[no-any-return]
+    return None
 
 
 def _install_callback(agent: Any, attr: str, fn: Any) -> None:
@@ -96,19 +116,28 @@ def _install_callback(agent: Any, attr: str, fn: Any) -> None:
 
 
 def _iter_llm_agents(root: Any) -> List[Any]:
-    """Return every ``LlmAgent``-shaped node in the ``sub_agents`` tree.
+    """Return every ``LlmAgent``-shaped node in the agent tree.
 
     A node qualifies if it exposes the model-callback surface (duck-typed
     via :data:`_MODEL_BEFORE` so we don't hard-require ``LlmAgent`` to be
     importable). Container agents (``Sequential`` / ``Parallel`` / ``Loop``)
     have no model callbacks themselves but their ``sub_agents`` are walked
-    so a multi-agent app is governed end to end. Cycles and pathological
-    depth are bounded by an id-visited set and a hard cap.
+    so a multi-agent app is governed end to end.
+
+    ``AgentTool``-wrapped agents are also followed: an agent exposed to another
+    agent as a tool carries its target on ``tool.agent`` and lives in ``tools``
+    (not ``sub_agents``), so it would otherwise be missed. Cycles and
+    pathological depth are bounded by an id-visited set and a hard cap
+    (``_MAX_GRAPH_NODES``), which logs rather than silently truncating.
     """
     found: List[Any] = []
     seen: set[int] = set()
     stack: List[Any] = [root]
-    while stack and len(seen) < 1000:
+    capped = False
+    while stack:
+        if len(seen) >= _MAX_GRAPH_NODES:
+            capped = True
+            break
         node = stack.pop()
         if node is None or id(node) in seen:
             continue
@@ -118,6 +147,20 @@ def _iter_llm_agents(root: Any) -> List[Any]:
         sub_agents = getattr(node, "sub_agents", None)
         if isinstance(sub_agents, (list, tuple)):
             stack.extend(sub_agents)
+        # AgentTool wraps its target agent on ``.agent``; follow tools so an
+        # agent-as-tool is governed too.
+        tools = getattr(node, "tools", None)
+        if isinstance(tools, (list, tuple)):
+            for tool in tools:
+                wrapped = getattr(tool, "agent", None)
+                if wrapped is not None:
+                    stack.append(wrapped)
+    if capped:
+        logger.warning(
+            "install_governance stopped walking the agent tree at the %d-node "
+            "cap; agents beyond it will not be governed",
+            _MAX_GRAPH_NODES,
+        )
     return found
 
 
@@ -139,13 +182,25 @@ def install_governance(
     Called by :class:`UiPathGoogleADKRuntimeFactory` when an ``evaluator``
     is supplied to ``new_runtime``.
     """
-    callbacks = GovernanceCallbacks(
-        evaluator=evaluator,
-        agent_name=agent_name,
-        session_id=session_id,
-    )
     llm_agents = _iter_llm_agents(agent)
+    callbacks: GovernanceCallbacks | None = None
     for node in llm_agents:
+        already = _find_governance_callbacks(node)
+        if already is not None:
+            # Cached agent reused for a new runtime: refresh the evaluator and
+            # session/agent so governance attributes to *this* run rather than
+            # the first one that installed it (the factory caches agents by
+            # entrypoint across runtime_ids).
+            already.rebind(
+                evaluator=evaluator, agent_name=agent_name, session_id=session_id
+            )
+            continue
+        if callbacks is None:
+            callbacks = GovernanceCallbacks(
+                evaluator=evaluator,
+                agent_name=agent_name,
+                session_id=session_id,
+            )
         _install_callback(node, _MODEL_BEFORE, callbacks.before_model)
         _install_callback(node, _MODEL_AFTER, callbacks.after_model)
         _install_callback(node, _TOOL_BEFORE, callbacks.before_tool)
@@ -183,8 +238,28 @@ class GovernanceCallbacks:
         self._evaluator = evaluator
         self._agent_name = agent_name
         self._session_id = session_id
-        self._trace_id = str(uuid4())
+        # ``trace_id`` is intentionally NOT held here. A single uuid minted at
+        # install time would be identical for every call. Trace correlation is
+        # owned by the layer below (OTel span / HTTP resolve at call time),
+        # matching the LangChain adapter.
         self._session_state: Dict[str, Any] = {"tool_calls": 0, "llm_calls": 0}
+
+    def rebind(
+        self,
+        evaluator: EvaluatorProtocol,
+        agent_name: str,
+        session_id: str,
+    ) -> None:
+        """Re-point this callback set at a new run.
+
+        Called when a cached agent (already carrying these callbacks) is reused
+        for a fresh ``new_runtime`` — updates the evaluator and identifiers and
+        resets the per-run counters so state does not bleed across runtimes.
+        """
+        self._evaluator = evaluator
+        self._agent_name = agent_name
+        self._session_id = session_id
+        self._session_state = {"tool_calls": 0, "llm_calls": 0}
 
     # ----- Model callbacks -------------------------------------------------
 
@@ -201,15 +276,16 @@ class GovernanceCallbacks:
         Returns ``None`` so ADK proceeds with the model call.
         """
         try:
-            self._session_state["llm_calls"] = (
-                self._session_state.get("llm_calls", 0) + 1
-            )
             model_input = self._latest_request_text(llm_request)
             self._evaluator.evaluate_before_model(
                 model_input=model_input,
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
+            )
+            # Count only calls that passed governance — a DENY raises above, so
+            # a blocked call must not inflate the counter.
+            self._session_state["llm_calls"] = (
+                self._session_state.get("llm_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -236,7 +312,6 @@ class GovernanceCallbacks:
                 model_output=model_output,
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
@@ -253,17 +328,18 @@ class GovernanceCallbacks:
         return would short-circuit it with a substitute result).
         """
         try:
-            self._session_state["tool_calls"] = (
-                self._session_state.get("tool_calls", 0) + 1
-            )
             tool_name = getattr(tool, "name", None) or "unknown"
             self._evaluator.evaluate_tool_call(
                 tool_name=tool_name,
                 tool_args=args or {},
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
                 session_state=self._session_state,
+            )
+            # Count only calls that passed governance; the evaluator saw the
+            # count of prior tool calls, and a DENY raises before this bump.
+            self._session_state["tool_calls"] = (
+                self._session_state.get("tool_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -292,7 +368,6 @@ class GovernanceCallbacks:
                 tool_result=tool_result,
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
@@ -384,11 +459,16 @@ class GovernanceCallbacks:
         return "\n".join(p for p in pieces if p)
 
     @staticmethod
-    def _stringify(value: Any) -> str:
-        """Render a dict / object payload as compact, scannable text."""
+    def _stringify(value: Any, cap: int = _BEFORE_MODEL_TEXT_CAP) -> str:
+        """Render a dict / object payload as compact, scannable text, capped.
+
+        Bounded by ``cap`` so an oversized tool result, function-call args
+        blob, or function-response can't hand a multi-megabyte string to the
+        evaluator.
+        """
         if isinstance(value, str):
-            return value
+            return value[:cap]
         try:
-            return json.dumps(value, default=str, ensure_ascii=False)
+            return json.dumps(value, default=str, ensure_ascii=False)[:cap]
         except (TypeError, ValueError):
-            return str(value)
+            return str(value)[:cap]

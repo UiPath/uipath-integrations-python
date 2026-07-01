@@ -1,0 +1,473 @@
+"""OpenAI Agents governance hooks for UiPath.
+
+Provides governance for OpenAI Agents SDK agents (``agents.Agent`` and any
+graph of agents reachable via ``handoffs``). Like the Google ADK integration —
+and unlike the LangChain one, which wraps a ``Runnable`` and intercepts
+``invoke`` / ``ainvoke`` — OpenAI Agents are executed by ``Runner.run`` /
+``Runner.run_streamed``, which hold their **own** reference to the agent
+object. Replacing ``runtime.agent`` with a proxy would never reach the
+``Runner``. So :func:`install_governance` installs governance directly onto
+each agent's native ``hooks`` attribute (an :class:`agents.AgentHooks`),
+mutating it in place:
+
+- ``on_llm_start``  → BEFORE_MODEL
+- ``on_llm_end``    → AFTER_MODEL
+- ``on_tool_start`` → TOOL_CALL
+- ``on_tool_end``   → AFTER_TOOL
+
+Because the mutation is in place, :func:`install_governance` returns the
+**original agent** (hooks installed) rather than a wrapping proxy.
+``agents.Agent`` validates that ``hooks`` is an ``AgentHooks`` instance, so
+:class:`GovernanceAgentHooks` subclasses it (the ADK integration could
+duck-type its callbacks; here the SDK type-checks the slot).
+
+``agent.hooks`` holds a **single** ``AgentHooks`` (not a list, as in ADK), so
+when an agent already carries user hooks we *chain*: governance runs first,
+then the previously-installed hooks.
+
+Chain-level boundaries (BEFORE_AGENT / AFTER_AGENT) are owned by the
+governance host, so they are not fired here — that would duplicate every
+boundary evaluation. (The SDK's per-agent ``on_start`` / ``on_end`` are
+pass-through-only here for that reason.)
+
+The evaluator protocol comes from ``uipath-core``; this package contributes
+only the OpenAI-Agents-specific wiring. Governance is installed by the runtime
+factory: passing an ``evaluator`` to
+:class:`UiPathOpenAIAgentRuntimeFactory.new_runtime` calls
+:func:`install_governance` on the resolved agent. No adapter registry, no
+entry point, no import-time side effects.
+
+Audit emission and enforcement (raising :class:`GovernanceBlockException` on
+DENY) are owned by the evaluator itself. Each hook only extracts the relevant
+payload and calls the matching ``evaluate_*`` method;
+:class:`GovernanceBlockException` is allowed to propagate (it aborts the
+``Runner`` run), anything else is logged and swallowed so a governance bug
+never breaks an agent run.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Dict, List
+
+from agents import Agent, AgentHooks
+from uipath.core.adapters import EvaluatorProtocol
+from uipath.core.governance.exceptions import GovernanceBlockException
+
+logger = logging.getLogger(__name__)
+
+# Cap on the text blob passed to BEFORE_MODEL / AFTER_MODEL governance
+# evaluation. Sized to match the governance host and the other adapters so
+# scan-time budgets are consistent across hooks. A long conversation history is
+# governed at the LLM layer by scanning only the latest request content, not the
+# full prompt — see :func:`_latest_input_text`.
+_BEFORE_MODEL_TEXT_CAP = 64000
+
+# Hard cap on how many nodes the handoff-graph walk visits, guarding against
+# cyclic or pathologically deep agent graphs. Hitting it is logged, not silent.
+_MAX_GRAPH_NODES = 1000
+
+
+def install_governance(
+    agent: Agent,
+    evaluator: EvaluatorProtocol,
+    *,
+    agent_name: str,
+    session_id: str,
+) -> Agent:
+    """Install governance hooks on the agent graph (mutated in place).
+
+    Walks every agent reachable through ``handoffs`` and installs a
+    :class:`GovernanceAgentHooks` on each one's ``hooks`` slot, chaining to any
+    pre-existing hooks. Returns the original ``agent`` — the ``Runner`` already
+    holds this reference, so in-place mutation is what wires governance into
+    execution. Idempotent: an already-governed agent is left untouched.
+
+    Called by :class:`UiPathOpenAIAgentRuntimeFactory` when an ``evaluator``
+    is supplied to ``new_runtime``.
+    """
+    agents = _iter_agents(agent)
+    installed = 0
+    for node in agents:
+        if isinstance(getattr(node, "hooks", None), GovernanceAgentHooks):
+            continue  # idempotent — already governed
+        prev = getattr(node, "hooks", None)
+        node.hooks = GovernanceAgentHooks(
+            evaluator=evaluator,
+            agent_name=agent_name,
+            session_id=session_id,
+            inner=prev,
+        )
+        installed += 1
+    if not agents:
+        logger.warning(
+            "install_governance found no Agent in %s — deep hooks will not fire",
+            type(agent).__name__,
+        )
+    else:
+        logger.debug("Installed governance hooks on %d OpenAI agent(s)", installed)
+    return agent
+
+
+def _iter_agents(root: Any) -> List[Any]:
+    """Return every ``Agent`` reachable through the ``handoffs`` graph.
+
+    A node qualifies only if it is a real :class:`agents.Agent`. The SDK
+    type-checks the ``hooks`` slot, so duck-typing on ``hasattr(node, "hooks")``
+    could let non-Agent objects through — we isinstance-check instead. Handoff
+    targets may be ``Agent`` instances or ``Handoff`` objects that carry the
+    target on ``.agent``; both are followed so a multi-agent app is governed end
+    to end. Cycles and pathological depth are bounded by an id-visited set and a
+    hard cap (``_MAX_GRAPH_NODES``), which logs rather than silently truncating.
+
+    Not walked: agents reachable only as tools (``agent.as_tool()``) or embedded
+    in input/output guardrail functions — the SDK closes over those behind
+    opaque callables, so they are governed by their own runtime rather than this
+    graph walk.
+    """
+    found: List[Any] = []
+    seen: set[int] = set()
+    stack: List[Any] = [root]
+    capped = False
+    while stack:
+        if len(seen) >= _MAX_GRAPH_NODES:
+            capped = True
+            break
+        node = stack.pop()
+        if node is None or id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, Agent):
+            found.append(node)
+        handoffs = getattr(node, "handoffs", None)
+        if isinstance(handoffs, (list, tuple)):
+            for h in handoffs:
+                # A Handoff wraps its target agent on ``.agent``; a bare Agent
+                # is itself the target.
+                stack.append(getattr(h, "agent", h))
+    if capped:
+        logger.warning(
+            "install_governance stopped walking the agent graph at the %d-node "
+            "cap; agents beyond it will not be governed",
+            _MAX_GRAPH_NODES,
+        )
+    return found
+
+
+class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
+    """Per-agent ``AgentHooks`` bound to one governance evaluator.
+
+    The evaluator owns audit emission and DENY-raising. Each hook extracts the
+    relevant payload, calls the matching ``evaluate_*`` method, and returns
+    ``None``. :class:`GovernanceBlockException` is allowed to propagate — it
+    aborts the ``Runner`` run — anything else is logged and swallowed.
+
+    When the agent already carried an ``AgentHooks`` (``inner``), governance
+    runs first and then delegates to it, so user hooks keep working.
+    """
+
+    def __init__(
+        self,
+        evaluator: EvaluatorProtocol,
+        agent_name: str,
+        session_id: str,
+        inner: Any = None,
+    ) -> None:
+        self._evaluator = evaluator
+        self._agent_name = agent_name
+        self._session_id = session_id
+        self._inner = inner
+        # ``trace_id`` is intentionally NOT held here. A single uuid minted at
+        # install time would be identical for every model/tool call and would
+        # diverge across handoff nodes (each carries its own hooks). Trace
+        # correlation is owned by the layer below: OTel-backed sinks read the
+        # live span on the caller's thread, HTTP consumers resolve the canonical
+        # id at call time. This matches the LangChain adapter.
+        self._session_state: Dict[str, Any] = {"tool_calls": 0, "llm_calls": 0}
+
+    def _resolve_agent_name(self, agent: Any) -> str:
+        """Prefer the live executing agent's name over the install-time name.
+
+        After a handoff the running node may differ from the graph entrypoint
+        the factory named us with; reporting the actual agent gives governance
+        accurate attribution. Falls back to the install-time name.
+        """
+        name = getattr(agent, "name", None)
+        return name if isinstance(name, str) and name else self._agent_name
+
+    # ----- Model hooks -----------------------------------------------------
+
+    async def on_llm_start(
+        self,
+        context: Any,
+        agent: Any,
+        system_prompt: Any,
+        input_items: Any,
+    ) -> None:
+        """Evaluate BEFORE_MODEL rules immediately before the LLM call.
+
+        Scans only the **latest input item** — not the full history. The model
+        still receives the entire history (this hook does not mutate the
+        request); the evaluator focuses on the new content the agent is about
+        to respond to. Without this scoping, a violation in an earlier turn
+        would re-fire on every subsequent model call because that text stays in
+        the prompt for context.
+        """
+        try:
+            model_input = _latest_input_text(input_items)
+            self._evaluator.evaluate_before_model(
+                model_input=model_input,
+                agent_name=self._resolve_agent_name(agent),
+                runtime_id=self._session_id,
+            )
+            # Count only calls that passed governance — a DENY raises above, so
+            # a blocked call must not inflate the counter.
+            self._session_state["llm_calls"] = (
+                self._session_state.get("llm_calls", 0) + 1
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:  # noqa: BLE001 - governance must not break the run
+            logger.warning("on_llm_start governance check failed (continuing): %s", e)
+        await _delegate(
+            self._inner, "on_llm_start", context, agent, system_prompt, input_items
+        )
+
+    async def on_llm_end(self, context: Any, agent: Any, response: Any) -> None:
+        """Evaluate AFTER_MODEL rules immediately after the LLM response."""
+        try:
+            model_output = _model_response_text(response)
+            self._evaluator.evaluate_after_model(
+                model_output=model_output,
+                agent_name=self._resolve_agent_name(agent),
+                runtime_id=self._session_id,
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("on_llm_end governance check failed (continuing): %s", e)
+        await _delegate(self._inner, "on_llm_end", context, agent, response)
+
+    # ----- Tool hooks ------------------------------------------------------
+
+    async def on_tool_start(self, context: Any, agent: Any, tool: Any) -> None:
+        """Evaluate TOOL_CALL rules immediately before a tool is invoked.
+
+        The OpenAI Agents SDK does not surface tool *arguments* on
+        ``on_tool_start`` (only the tool itself), so ``tool_args`` is empty
+        here — argument-shaped rules evaluate at AFTER_TOOL via the result, or
+        at the model layer where the call's arguments are visible in the output.
+        """
+        try:
+            tool_name = getattr(tool, "name", None) or "unknown"
+            self._evaluator.evaluate_tool_call(
+                tool_name=tool_name,
+                tool_args={},
+                agent_name=self._resolve_agent_name(agent),
+                runtime_id=self._session_id,
+                session_state=self._session_state,
+            )
+            # Count only calls that passed governance; the evaluator saw the
+            # count of prior tool calls, and a DENY raises before this bump.
+            self._session_state["tool_calls"] = (
+                self._session_state.get("tool_calls", 0) + 1
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("on_tool_start governance check failed (continuing): %s", e)
+        await _delegate(self._inner, "on_tool_start", context, agent, tool)
+
+    async def on_tool_end(
+        self, context: Any, agent: Any, tool: Any, result: Any
+    ) -> None:
+        """Evaluate AFTER_TOOL rules immediately after a tool is invoked.
+
+        The SDK passes ``tool`` to both ``on_tool_start`` and ``on_tool_end``,
+        so the name is read directly here — no start→end correlation is needed
+        (unlike callback frameworks whose end hook omits the tool).
+        """
+        try:
+            tool_name = getattr(tool, "name", None) or "unknown"
+            tool_result = "" if result is None else _stringify(result)
+            self._evaluator.evaluate_after_tool(
+                tool_name=tool_name,
+                tool_result=tool_result,
+                agent_name=self._resolve_agent_name(agent),
+                runtime_id=self._session_id,
+            )
+        except GovernanceBlockException:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("on_tool_end governance check failed (continuing): %s", e)
+        await _delegate(self._inner, "on_tool_end", context, agent, tool, result)
+
+    # ----- Pass-through boundaries ----------------------------------------
+    # BEFORE_AGENT / AFTER_AGENT are owned by the governance host; here we only
+    # forward to any wrapped user hooks so their behaviour is preserved.
+
+    async def on_start(self, context: Any, agent: Any) -> None:
+        await _delegate(self._inner, "on_start", context, agent)
+
+    async def on_end(self, context: Any, agent: Any, output: Any) -> None:
+        await _delegate(self._inner, "on_end", context, agent, output)
+
+    async def on_handoff(self, context: Any, agent: Any, source: Any) -> None:
+        await _delegate(self._inner, "on_handoff", context, agent, source)
+
+
+# --------------------------------------------------------------------------
+# Delegation + text extraction (module-level, sync, duck-typed)
+#
+# Extraction is duck-typed on purpose: the OpenAI Agents SDK's run-item /
+# response shapes are not stable public models, so we read attributes
+# defensively rather than isinstance-checking SDK types that may move.
+# --------------------------------------------------------------------------
+
+
+async def _delegate(inner: Any, method: str, *args: Any) -> None:
+    """Call ``inner.<method>(*args)`` if a wrapped hooks object provides it.
+
+    User hooks are best-effort: a failure in a chained hook is logged and
+    swallowed (it must not abort the run on governance's behalf), except a
+    :class:`GovernanceBlockException`, which always propagates.
+    """
+    if inner is None:
+        return
+    fn = getattr(inner, method, None)
+    if fn is None:
+        return
+    try:
+        await fn(*args)
+    except GovernanceBlockException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chained user hook %s failed (continuing): %s", method, e)
+
+
+def _latest_input_text(input_items: Any) -> str:
+    """Extract text from the most-recent item in an LLM-call input list.
+
+    ``input_items`` is the full ``list`` of response input items sent to the
+    model. We take the last entry — the new user message, or the tool
+    ``function_call_output`` being fed back — and pull its text via
+    :func:`_item_text`. Returns ``""`` when there is nothing extractable.
+    """
+    if not input_items:
+        return ""
+    if isinstance(input_items, (list, tuple)):
+        return _item_text(input_items[-1])
+    return _item_text(input_items)
+
+
+def _item_text(item: Any) -> str:
+    """Return governance-relevant text from one response input/output item.
+
+    Tolerant of both dict-shaped items (``{"role": ..., "content": ...}``,
+    ``{"type": "function_call", "name": ..., "arguments": ...}``) and
+    object-shaped items (``.content`` / ``.text`` / ``.name`` / ``.arguments``).
+    Content may itself be a string or a list of parts (each a dict with
+    ``text`` / ``input_text`` / ``output_text`` or an object with ``.text``).
+    Capped at :data:`_BEFORE_MODEL_TEXT_CAP`.
+    """
+    if item is None:
+        return ""
+    if isinstance(item, str):
+        return item[:_BEFORE_MODEL_TEXT_CAP]
+
+    pieces: List[str] = []
+
+    # A function/tool call carries its intent in name + arguments. Treat an
+    # item as a call only when it is explicitly typed ``function_call`` or it
+    # actually carries arguments — a bare ``name`` on some other item type (a
+    # named message part) is not a tool call.
+    name = _get(item, "name")
+    arguments = _get(item, "arguments")
+    if name and (_get(item, "type") == "function_call" or arguments is not None):
+        if isinstance(name, str):
+            pieces.append(name)
+        if arguments is not None:
+            pieces.append(_stringify(arguments))
+
+    content = _get(item, "content")
+    if content is not None:
+        pieces.append(_content_text(content))
+
+    # Tool result fed back to the model.
+    output = _get(item, "output")
+    if output is not None and not pieces:
+        pieces.append(_stringify(output))
+
+    text = "\n".join(p for p in pieces if p)
+    return text[:_BEFORE_MODEL_TEXT_CAP]
+
+
+def _content_text(content: Any) -> str:
+    """Return text from a message ``content`` (string or list of parts)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, (list, tuple)):
+        out: List[str] = []
+        for part in content:
+            if isinstance(part, str):
+                out.append(part)
+                continue
+            t = (
+                _get(part, "text")
+                or _get(part, "input_text")
+                or _get(part, "output_text")
+            )
+            if isinstance(t, str) and t:
+                out.append(t)
+        return "\n".join(out)
+    t = _get(content, "text")
+    return t if isinstance(t, str) else ""
+
+
+def _model_response_text(response: Any) -> str:
+    """Extract assistant text + tool-call intent from a ``ModelResponse``.
+
+    ``response.output`` is the ``list`` of output items the model produced
+    (assistant messages and function/tool calls). Each is run through
+    :func:`_item_text` so both visible replies and tool-call arguments are
+    governed. Capped at :data:`_BEFORE_MODEL_TEXT_CAP`.
+    """
+    if response is None:
+        return ""
+    output = _get(response, "output")
+    if output is None:
+        # Some shapes hand back text directly.
+        return _item_text(response)
+    items = output if isinstance(output, (list, tuple)) else [output]
+    collected: List[str] = []
+    remaining = _BEFORE_MODEL_TEXT_CAP
+    for item in items:
+        if remaining <= 0:
+            break
+        piece = _item_text(item)
+        if piece:
+            collected.append(piece)
+            remaining -= len(piece) + 1
+    return "\n".join(collected)[:_BEFORE_MODEL_TEXT_CAP]
+
+
+def _get(obj: Any, attr: str) -> Any:
+    """Read ``attr`` from a dict key or object attribute, else ``None``."""
+    if isinstance(obj, dict):
+        return obj.get(attr)
+    return getattr(obj, attr, None)
+
+
+def _stringify(value: Any, cap: int = _BEFORE_MODEL_TEXT_CAP) -> str:
+    """Render a dict / object payload as compact, scannable text, capped.
+
+    The result is bounded by ``cap`` so an oversized tool result or argument
+    blob can't hand a multi-megabyte string to the evaluator.
+    """
+    if isinstance(value, str):
+        return value[:cap]
+    try:
+        return json.dumps(value, default=str, ensure_ascii=False)[:cap]
+    except (TypeError, ValueError):
+        return str(value)[:cap]

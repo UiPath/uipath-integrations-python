@@ -10,6 +10,7 @@ dependencies = [
     "openai-agents>=0.6.5",
     "openinference-instrumentation-openai-agents>=1.4.0",
     "uipath>=2.10.0, <2.11.0",
+    "uipath-core>=0.5.18, <0.7.0",
     "uipath-runtime>=0.11.0, <0.12.0",
 ]
 classifiers = [

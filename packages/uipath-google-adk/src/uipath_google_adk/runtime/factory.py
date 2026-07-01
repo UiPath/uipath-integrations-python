@@ -8,6 +8,7 @@ from google.adk.agents import BaseAgent
 from google.adk.runners import Runner
 from google.adk.sessions.sqlite_session_service import SqliteSessionService
 from openinference.instrumentation.google_adk import GoogleADKInstrumentor
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.runtime import (
     UiPathRuntimeContext,
     UiPathRuntimeFactorySettings,
@@ -16,6 +17,7 @@ from uipath.runtime import (
 )
 from uipath.runtime.errors import UiPathErrorCategory
 
+from uipath_google_adk.governance import install_governance
 from uipath_google_adk.runtime.config import GoogleADKConfig
 from uipath_google_adk.runtime.errors import (
     UiPathGoogleADKErrorCode,
@@ -209,6 +211,7 @@ class UiPathGoogleADKRuntimeFactory:
         agent: BaseAgent,
         runtime_id: str,
         entrypoint: str,
+        evaluator: EvaluatorProtocol | None = None,
     ) -> UiPathRuntimeProtocol:
         """
         Create a runtime instance from an agent.
@@ -217,7 +220,19 @@ class UiPathGoogleADKRuntimeFactory:
         retrieves or creates a session for the given runtime_id.
         Sessions persist across calls, enabling multi-turn conversations
         where only the current user message is sent each time.
+
+        When ``evaluator`` is supplied, governance callbacks are installed on
+        the agent tree in place via :func:`install_governance` before the
+        ``Runner`` is created.
         """
+        if evaluator is not None:
+            install_governance(
+                agent,
+                evaluator,
+                agent_name=entrypoint,
+                session_id=runtime_id,
+            )
+
         session_service = await self._get_session_service()
         runner = Runner(
             agent=agent,
@@ -256,7 +271,9 @@ class UiPathGoogleADKRuntimeFactory:
         Args:
             entrypoint: Agent name from google_adk.json
             runtime_id: Unique identifier for the runtime instance
-            **kwargs: Additional keyword arguments (unused)
+            **kwargs: Forwarded factory kwargs. Recognized: ``evaluator``
+                (``EvaluatorProtocol``) — when present, governance callbacks
+                are installed on the agent via :func:`install_governance`.
 
         Returns:
             Configured runtime instance with agent
@@ -267,6 +284,7 @@ class UiPathGoogleADKRuntimeFactory:
             agent=agent,
             runtime_id=runtime_id,
             entrypoint=entrypoint,
+            evaluator=kwargs.get("evaluator"),
         )
 
     async def dispose(self) -> None:

@@ -448,3 +448,56 @@ def test_callbacks_return_none():
     assert cb.after_model(None, SimpleNamespace(partial=False, content=None)) is None  # type: ignore[func-returns-value]
     assert cb.before_tool(FakeTool("t"), {}, None) is None  # type: ignore[func-returns-value]
     assert cb.after_tool(FakeTool("t"), {}, None, {}) is None  # type: ignore[func-returns-value]
+
+
+# --------------------------------------------------------------------------
+# coverage: swallow on model/tool callbacks + extraction / helper edges
+# --------------------------------------------------------------------------
+
+
+class _Boom:
+    """Evaluator whose every evaluate_* raises a non-block error."""
+
+    def __getattr__(self, _name: str) -> Any:
+        def _raise(*_a: Any, **_k: Any) -> None:
+            raise RuntimeError("evaluator bug")
+
+        return _raise
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda cb: cb.after_model(None, SimpleNamespace(partial=False, content=None)),
+        lambda cb: cb.before_tool(FakeTool("t"), {}, None),
+        lambda cb: cb.after_tool(FakeTool("t"), {}, None, {"r": 1}),
+    ],
+)
+def test_model_tool_callbacks_swallow_non_block_errors(invoke, caplog):
+    cb = GovernanceCallbacks(evaluator=_Boom(), agent_name="a", session_id="s")
+    with caplog.at_level(logging.WARNING):
+        invoke(cb)  # must NOT raise — a governance bug can't break the run
+    assert any("governance check failed" in r.message for r in caplog.records)
+
+
+def test_content_text_and_helper_edges():
+    G = GovernanceCallbacks
+    # _content_text: None / bare str / list-of-parts / unsupported object
+    assert G._content_text(None) == ""
+    assert G._content_text("bare") == "bare"
+    assert G._content_text(123) == ""
+    fc = SimpleNamespace(name="lookup", args={"q": "x"})
+    fr = SimpleNamespace(response={"ok": 1})
+    out = G._content_text(
+        _content(
+            [_part(text="hi"), _part(function_call=fc), _part(function_response=fr)]
+        )
+    )
+    assert "hi" in out and "lookup" in out and "ok" in out
+    # _cap_args: non-dict passes through untouched
+    assert G._cap_args("notdict") == "notdict"  # type: ignore[arg-type]
+    # _stringify: str passthrough + circular-ref fallback (no crash)
+    assert G._stringify("hi") == "hi"
+    circular: dict[str, Any] = {}
+    circular["self"] = circular
+    assert isinstance(G._stringify(circular), str)

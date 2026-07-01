@@ -45,6 +45,7 @@ from typing import Any, AsyncIterator, Dict, Iterable, List
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
     BuiltinToolCallPart,
+    BuiltinToolReturnPart,
     ModelRequest,
     TextPart,
     ToolCallPart,
@@ -200,7 +201,7 @@ class GovernanceCallbacks:
         for part in parts:
             if isinstance(part, ToolReturnPart):
                 self._after_tool(
-                    part.tool_name or "unknown",
+                    _tool_name(part),
                     part.content,
                     tool_call_id=getattr(part, "tool_call_id", None),
                 )
@@ -208,14 +209,27 @@ class GovernanceCallbacks:
     # ----- after the model call ---------------------------------------
 
     def on_response(self, response: Any) -> None:
-        """Fire AFTER_MODEL (response text) + TOOL_CALL (each tool-call part)."""
+        """Fire AFTER_MODEL (response text) + TOOL_CALL / AFTER_TOOL parts.
+
+        A provider-executed **built-in** tool carries both its call
+        (``BuiltinToolCallPart``) and its result (``BuiltinToolReturnPart``)
+        inline in the model response, so AFTER_TOOL for built-in tools is fired
+        here — symmetric with the built-in TOOL_CALL — rather than on the next
+        request (where only user-tool ``ToolReturnPart``s arrive).
+        """
         parts = getattr(response, "parts", None) or []
         self._after_model(self._response_text(parts))
         for part in parts:
             if isinstance(part, (ToolCallPart, BuiltinToolCallPart)):
                 self._tool_call(
-                    part.tool_name or "unknown",
+                    _tool_name(part),
                     part.args,
+                    tool_call_id=getattr(part, "tool_call_id", None),
+                )
+            elif isinstance(part, BuiltinToolReturnPart):
+                self._after_tool(
+                    _tool_name(part),
+                    part.content,
                     tool_call_id=getattr(part, "tool_call_id", None),
                 )
 
@@ -380,6 +394,22 @@ def _content_text(content: Any) -> str:
     return _stringify(content)
 
 
+def _tool_name(part: Any) -> str:
+    """Return ``part.tool_name`` or ``"unknown"``, logging the fallback.
+
+    A missing tool name means TOOL_CALL / AFTER_TOOL can't be attributed to a
+    real tool, so surface it rather than silently reporting ``"unknown"``.
+    """
+    name = getattr(part, "tool_name", None)
+    if name:
+        return name
+    logger.warning(
+        "governance: %s carries no tool_name; reporting 'unknown'",
+        type(part).__name__,
+    )
+    return "unknown"
+
+
 def _coerce_args(args: Any) -> Dict[str, Any]:
     """Normalise ``ToolCallPart.args`` (dict / JSON string / None) to a dict."""
     if args is None:
@@ -391,7 +421,9 @@ def _coerce_args(args: Any) -> Dict[str, Any]:
             parsed = json.loads(args)
             return parsed if isinstance(parsed, dict) else {"_": parsed}
         except (TypeError, ValueError):
-            return {}
+            # Preserve the raw string so an arg-based policy can still scan it;
+            # a malformed payload must not be a way to slip past governance.
+            return {"_raw": args}
     return {}
 
 

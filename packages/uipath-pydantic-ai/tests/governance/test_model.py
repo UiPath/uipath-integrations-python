@@ -18,6 +18,8 @@ from typing import Any, List
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
+    BuiltinToolCallPart,
+    BuiltinToolReturnPart,
     ModelRequest,
     ModelResponse,
     TextPart,
@@ -225,6 +227,31 @@ def test_on_response_fires_after_model_and_tool_call():
     assert tool_call["session_state"]["tool_calls"] == 1
 
 
+def test_on_response_fires_after_tool_for_builtin_tool_result():
+    """A provider-executed built-in tool carries its result inline in the
+    response (BuiltinToolReturnPart); AFTER_TOOL must fire for it — symmetric
+    with the built-in TOOL_CALL."""
+    ev = FakeEvaluator()
+    cb = _make_callbacks(ev)
+    response = ModelResponse(
+        parts=[
+            BuiltinToolCallPart(
+                tool_name="web_search", args={"q": "x"}, tool_call_id="b1"
+            ),
+            BuiltinToolReturnPart(
+                tool_name="web_search", content={"results": "found"}, tool_call_id="b1"
+            ),
+        ]
+    )
+    cb.on_response(response)
+    hooks = _hooks(ev)
+    assert "tool_call" in hooks and "after_tool" in hooks
+    after_tool = [kw for h, kw in ev.calls if h == "after_tool"][0]
+    assert after_tool["tool_name"] == "web_search"
+    assert after_tool["tool_call_id"] == "b1"
+    assert "found" in after_tool["tool_result"]
+
+
 def test_on_response_coerces_json_string_args():
     ev = FakeEvaluator()
     cb = _make_callbacks(ev)
@@ -393,7 +420,8 @@ def test_coerce_args_variants():
     assert _coerce_args({"a": 1}) == {"a": 1}
     assert _coerce_args('{"a": 1}') == {"a": 1}
     assert _coerce_args(None) == {}
-    assert _coerce_args("not json") == {}
+    # malformed JSON is preserved (not dropped) so arg-based policies can scan it
+    assert _coerce_args("not json") == {"_raw": "not json"}
 
 
 def test_block_in_before_model_propagates():

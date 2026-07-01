@@ -50,7 +50,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, Dict, List
-from uuid import uuid4
 
 from agents import Agent, AgentHooks
 from uipath.core.adapters import EvaluatorProtocol
@@ -64,6 +63,10 @@ logger = logging.getLogger(__name__)
 # governed at the LLM layer by scanning only the latest request content, not the
 # full prompt — see :func:`_latest_input_text`.
 _BEFORE_MODEL_TEXT_CAP = 64000
+
+# Hard cap on how many nodes the handoff-graph walk visits, guarding against
+# cyclic or pathologically deep agent graphs. Hitting it is logged, not silent.
+_MAX_GRAPH_NODES = 1000
 
 
 def install_governance(
@@ -108,23 +111,34 @@ def install_governance(
 
 
 def _iter_agents(root: Any) -> List[Any]:
-    """Return every agent node reachable through the ``handoffs`` graph.
+    """Return every ``Agent`` reachable through the ``handoffs`` graph.
 
-    A node qualifies if it exposes the ``hooks`` slot. Handoff targets may be
-    ``Agent`` instances or ``Handoff`` objects that carry the target on
-    ``.agent``; both are followed so a multi-agent app is governed end to end.
-    Cycles and pathological depth are bounded by an id-visited set and a hard
-    cap.
+    A node qualifies only if it is a real :class:`agents.Agent`. The SDK
+    type-checks the ``hooks`` slot, so duck-typing on ``hasattr(node, "hooks")``
+    could let non-Agent objects through — we isinstance-check instead. Handoff
+    targets may be ``Agent`` instances or ``Handoff`` objects that carry the
+    target on ``.agent``; both are followed so a multi-agent app is governed end
+    to end. Cycles and pathological depth are bounded by an id-visited set and a
+    hard cap (``_MAX_GRAPH_NODES``), which logs rather than silently truncating.
+
+    Not walked: agents reachable only as tools (``agent.as_tool()``) or embedded
+    in input/output guardrail functions — the SDK closes over those behind
+    opaque callables, so they are governed by their own runtime rather than this
+    graph walk.
     """
     found: List[Any] = []
     seen: set[int] = set()
     stack: List[Any] = [root]
-    while stack and len(seen) < 1000:
+    capped = False
+    while stack:
+        if len(seen) >= _MAX_GRAPH_NODES:
+            capped = True
+            break
         node = stack.pop()
         if node is None or id(node) in seen:
             continue
         seen.add(id(node))
-        if hasattr(node, "hooks"):
+        if isinstance(node, Agent):
             found.append(node)
         handoffs = getattr(node, "handoffs", None)
         if isinstance(handoffs, (list, tuple)):
@@ -132,6 +146,12 @@ def _iter_agents(root: Any) -> List[Any]:
                 # A Handoff wraps its target agent on ``.agent``; a bare Agent
                 # is itself the target.
                 stack.append(getattr(h, "agent", h))
+    if capped:
+        logger.warning(
+            "install_governance stopped walking the agent graph at the %d-node "
+            "cap; agents beyond it will not be governed",
+            _MAX_GRAPH_NODES,
+        )
     return found
 
 
@@ -158,8 +178,23 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
         self._agent_name = agent_name
         self._session_id = session_id
         self._inner = inner
-        self._trace_id = str(uuid4())
+        # ``trace_id`` is intentionally NOT held here. A single uuid minted at
+        # install time would be identical for every model/tool call and would
+        # diverge across handoff nodes (each carries its own hooks). Trace
+        # correlation is owned by the layer below: OTel-backed sinks read the
+        # live span on the caller's thread, HTTP consumers resolve the canonical
+        # id at call time. This matches the LangChain adapter.
         self._session_state: Dict[str, Any] = {"tool_calls": 0, "llm_calls": 0}
+
+    def _resolve_agent_name(self, agent: Any) -> str:
+        """Prefer the live executing agent's name over the install-time name.
+
+        After a handoff the running node may differ from the graph entrypoint
+        the factory named us with; reporting the actual agent gives governance
+        accurate attribution. Falls back to the install-time name.
+        """
+        name = getattr(agent, "name", None)
+        return name if isinstance(name, str) and name else self._agent_name
 
     # ----- Model hooks -----------------------------------------------------
 
@@ -180,21 +215,24 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
         the prompt for context.
         """
         try:
-            self._session_state["llm_calls"] = (
-                self._session_state.get("llm_calls", 0) + 1
-            )
             model_input = _latest_input_text(input_items)
             self._evaluator.evaluate_before_model(
                 model_input=model_input,
-                agent_name=self._agent_name,
+                agent_name=self._resolve_agent_name(agent),
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
+            )
+            # Count only calls that passed governance — a DENY raises above, so
+            # a blocked call must not inflate the counter.
+            self._session_state["llm_calls"] = (
+                self._session_state.get("llm_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
         except Exception as e:  # noqa: BLE001 - governance must not break the run
             logger.warning("on_llm_start governance check failed (continuing): %s", e)
-        await _delegate(self._inner, "on_llm_start", context, agent, system_prompt, input_items)
+        await _delegate(
+            self._inner, "on_llm_start", context, agent, system_prompt, input_items
+        )
 
     async def on_llm_end(self, context: Any, agent: Any, response: Any) -> None:
         """Evaluate AFTER_MODEL rules immediately after the LLM response."""
@@ -202,9 +240,8 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
             model_output = _model_response_text(response)
             self._evaluator.evaluate_after_model(
                 model_output=model_output,
-                agent_name=self._agent_name,
+                agent_name=self._resolve_agent_name(agent),
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
@@ -223,17 +260,18 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
         at the model layer where the call's arguments are visible in the output.
         """
         try:
-            self._session_state["tool_calls"] = (
-                self._session_state.get("tool_calls", 0) + 1
-            )
             tool_name = getattr(tool, "name", None) or "unknown"
             self._evaluator.evaluate_tool_call(
                 tool_name=tool_name,
                 tool_args={},
-                agent_name=self._agent_name,
+                agent_name=self._resolve_agent_name(agent),
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
                 session_state=self._session_state,
+            )
+            # Count only calls that passed governance; the evaluator saw the
+            # count of prior tool calls, and a DENY raises before this bump.
+            self._session_state["tool_calls"] = (
+                self._session_state.get("tool_calls", 0) + 1
             )
         except GovernanceBlockException:
             raise
@@ -256,9 +294,8 @@ class GovernanceAgentHooks(AgentHooks):  # type: ignore[type-arg]
             self._evaluator.evaluate_after_tool(
                 tool_name=tool_name,
                 tool_result=tool_result,
-                agent_name=self._agent_name,
+                agent_name=self._resolve_agent_name(agent),
                 runtime_id=self._session_id,
-                trace_id=self._trace_id,
             )
         except GovernanceBlockException:
             raise
@@ -341,10 +378,13 @@ def _item_text(item: Any) -> str:
 
     pieces: List[str] = []
 
-    # A function/tool call carries its intent in name + arguments.
+    # A function/tool call carries its intent in name + arguments. Treat an
+    # item as a call only when it is explicitly typed ``function_call`` or it
+    # actually carries arguments — a bare ``name`` on some other item type (a
+    # named message part) is not a tool call.
     name = _get(item, "name")
     arguments = _get(item, "arguments")
-    if name and (_get(item, "type") in (None, "function_call") or arguments is not None):
+    if name and (_get(item, "type") == "function_call" or arguments is not None):
         if isinstance(name, str):
             pieces.append(name)
         if arguments is not None:
@@ -419,11 +459,15 @@ def _get(obj: Any, attr: str) -> Any:
     return getattr(obj, attr, None)
 
 
-def _stringify(value: Any) -> str:
-    """Render a dict / object payload as compact, scannable text."""
+def _stringify(value: Any, cap: int = _BEFORE_MODEL_TEXT_CAP) -> str:
+    """Render a dict / object payload as compact, scannable text, capped.
+
+    The result is bounded by ``cap`` so an oversized tool result or argument
+    blob can't hand a multi-megabyte string to the evaluator.
+    """
     if isinstance(value, str):
-        return value
+        return value[:cap]
     try:
-        return json.dumps(value, default=str, ensure_ascii=False)
+        return json.dumps(value, default=str, ensure_ascii=False)[:cap]
     except (TypeError, ValueError):
-        return str(value)
+        return str(value)[:cap]

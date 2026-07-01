@@ -14,10 +14,12 @@ tests run without an explicit marker.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any, List
+from typing import Any, Iterator, List
 
 import pytest
+from agents import Agent
 from uipath.core.governance.exceptions import GovernanceBlockException
 
 from uipath_openai_agents.governance.hooks import (
@@ -62,14 +64,14 @@ class FakeEvaluator:
         self._record("after_tool", **kwargs)
 
 
-class FakeAgent:
-    """Minimal stand-in for ``agents.Agent`` (duck-typed by the adapter)."""
+class FakeAgent(Agent):  # type: ignore[type-arg]
+    """A real ``agents.Agent`` — the graph walk isinstance-checks ``Agent``, so
+    a bare duck-typed stand-in would be (correctly) skipped by
+    ``install_governance``. Subclassing keeps the construction lightweight while
+    remaining a genuine ``Agent`` instance."""
 
     def __init__(self, name: str = "agent", handoffs: List[Any] | None = None):
-        self.name = name
-        self.hooks: Any = None
-        self.tools: List[Any] = []
-        self.handoffs = handoffs or []
+        super().__init__(name=name, handoffs=handoffs or [])
 
 
 class FakeTool:
@@ -132,9 +134,7 @@ def test_install_governance_installs_on_all_agents_in_handoff_graph():
     leaf_b = FakeAgent("b")
     root = FakeAgent("root", handoffs=[leaf_a, leaf_b])
 
-    returned = install_governance(
-        root, FakeEvaluator(), agent_name="x", session_id="s"
-    )
+    returned = install_governance(root, FakeEvaluator(), agent_name="x", session_id="s")
 
     assert returned is root  # original returned, not a proxy
     for node in (root, leaf_a, leaf_b):
@@ -167,8 +167,30 @@ def test_install_governance_chains_existing_hooks():
     assert agent.hooks._inner is user_hooks
 
 
+_HOOKS_LOGGER = "uipath_openai_agents.governance.hooks"
+
+
+@contextmanager
+def _capture_hooks_logs(caplog: Any) -> Iterator[None]:
+    """Attach caplog's handler straight to the hooks logger.
+
+    Some sibling suites configure an ancestor ``uipath*`` logger with
+    ``propagate=False``, which silently breaks caplog's default root-handler
+    capture. Attaching directly to the target logger is propagation-independent.
+    """
+    logger = logging.getLogger(_HOOKS_LOGGER)
+    logger.addHandler(caplog.handler)
+    prev = logger.level
+    logger.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        logger.removeHandler(caplog.handler)
+        logger.setLevel(prev)
+
+
 def test_install_governance_warns_when_no_agent(caplog):
-    with caplog.at_level(logging.WARNING):
+    with _capture_hooks_logs(caplog):
         install_governance(object(), FakeEvaluator(), agent_name="x", session_id="s")  # type: ignore[arg-type]
     assert any("no Agent" in r.message for r in caplog.records)
 
@@ -282,6 +304,26 @@ async def test_on_tool_end_none_result():
     assert ev.calls[-1][1]["tool_result"] == ""
 
 
+async def test_reports_live_agent_name_not_install_time_name():
+    """After a handoff the executing agent differs from the graph entrypoint
+    the factory named us with; governance should attribute the live agent."""
+    ev = FakeEvaluator()
+    cb = _make_hooks(ev)  # install-time name is "agent-1"
+    await cb.on_llm_start(None, FakeAgent("billing_specialist"), None, [_msg("hi")])
+    assert ev.calls[-1][1]["agent_name"] == "billing_specialist"
+
+
+async def test_blocked_call_does_not_increment_counter():
+    """A DENY raises before the counter bump, so the count is not inflated."""
+    ev = FakeEvaluator(block_on="tool_call")
+    cb = _make_hooks(ev)
+    with pytest.raises(GovernanceBlockException):
+        await cb.on_tool_start(None, FakeAgent(), FakeTool("t"))
+    # evaluator saw the pre-call count (0) and the block prevented the bump
+    assert ev.calls[-1][1]["session_state"]["tool_calls"] == 0
+    assert cb._session_state["tool_calls"] == 0
+
+
 # --------------------------------------------------------------------------
 # chaining to user hooks
 # --------------------------------------------------------------------------
@@ -305,10 +347,19 @@ async def test_governance_delegates_to_inner_hooks():
 @pytest.mark.parametrize(
     "hook,invoke",
     [
-        ("before_model", lambda cb: cb.on_llm_start(None, FakeAgent(), None, [_msg("hi")])),
-        ("after_model", lambda cb: cb.on_llm_end(None, FakeAgent(), SimpleNamespace(output=[]))),
+        (
+            "before_model",
+            lambda cb: cb.on_llm_start(None, FakeAgent(), None, [_msg("hi")]),
+        ),
+        (
+            "after_model",
+            lambda cb: cb.on_llm_end(None, FakeAgent(), SimpleNamespace(output=[])),
+        ),
         ("tool_call", lambda cb: cb.on_tool_start(None, FakeAgent(), FakeTool("t"))),
-        ("after_tool", lambda cb: cb.on_tool_end(None, FakeAgent(), FakeTool("t"), {"r": 1})),
+        (
+            "after_tool",
+            lambda cb: cb.on_tool_end(None, FakeAgent(), FakeTool("t"), {"r": 1}),
+        ),
     ],
 )
 async def test_block_exception_propagates(hook, invoke):
@@ -327,7 +378,7 @@ async def test_non_block_exception_is_swallowed(caplog):
         agent_name="a",
         session_id="s",
     )
-    with caplog.at_level(logging.WARNING):
+    with _capture_hooks_logs(caplog):
         # must NOT raise — a governance bug can't break the agent run
         await cb.on_llm_start(None, FakeAgent(), None, [_msg("x")])
     assert any("governance check failed" in r.message for r in caplog.records)
@@ -357,7 +408,9 @@ async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
     from uipath_openai_agents.runtime import factory as factory_mod
 
     # Stub the runtime so we don't introspect a real Agent.
-    monkeypatch.setattr(factory_mod, "UiPathOpenAIAgentRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(
+        factory_mod, "UiPathOpenAIAgentRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
     agent = FakeAgent()
     await _factory_without_init()._create_runtime_instance(
         agent=agent, runtime_id="r", entrypoint="e", evaluator=FakeEvaluator()
@@ -368,7 +421,9 @@ async def test_factory_installs_governance_when_evaluator_supplied(monkeypatch):
 async def test_factory_skips_governance_without_evaluator(monkeypatch):
     from uipath_openai_agents.runtime import factory as factory_mod
 
-    monkeypatch.setattr(factory_mod, "UiPathOpenAIAgentRuntime", lambda **kw: SimpleNamespace(**kw))
+    monkeypatch.setattr(
+        factory_mod, "UiPathOpenAIAgentRuntime", lambda **kw: SimpleNamespace(**kw)
+    )
     agent = FakeAgent()
     await _factory_without_init()._create_runtime_instance(
         agent=agent, runtime_id="r", entrypoint="e"

@@ -331,7 +331,7 @@ class GovernanceCallbacks:
             tool_name = getattr(tool, "name", None) or "unknown"
             self._evaluator.evaluate_tool_call(
                 tool_name=tool_name,
-                tool_args=args or {},
+                tool_args=self._cap_args(args or {}),
                 agent_name=self._agent_name,
                 runtime_id=self._session_id,
                 session_state=self._session_state,
@@ -457,6 +457,24 @@ class GovernanceCallbacks:
                 pieces.append(cls._stringify(response))
 
         return "\n".join(p for p in pieces if p)
+
+    @classmethod
+    def _cap_args(cls, args: Dict[str, Any], cap: int = _BEFORE_MODEL_TEXT_CAP) -> Any:
+        """Bound the tool-args payload before it reaches the evaluator.
+
+        ``before_tool`` receives args straight from ADK; a huge blob (e.g. a
+        tool called with a multi-megabyte string) would otherwise be scanned
+        uncapped — contrast with ``after_tool``, which caps its result. Within
+        budget the dict is passed through unchanged (so per-key rules still
+        work); once its serialized size exceeds ``cap`` it is replaced with a
+        single capped, stringified form.
+        """
+        if not isinstance(args, dict) or not args:
+            return args
+        blob = cls._stringify(args, cap + 1)
+        if len(blob) <= cap:
+            return args
+        return {"_truncated": blob[:cap]}
 
     @staticmethod
     def _stringify(value: Any, cap: int = _BEFORE_MODEL_TEXT_CAP) -> str:

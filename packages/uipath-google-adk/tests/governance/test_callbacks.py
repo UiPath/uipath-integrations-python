@@ -137,6 +137,8 @@ def test_install_governance_installs_on_all_llm_agents_in_tree():
         assert len(leaf.before_model_callback) == 1
         assert leaf.after_model_callback and leaf.before_tool_callback
         assert leaf.after_tool_callback
+    # the container agent has no model-callback surface → must NOT be decorated
+    assert not hasattr(root, "before_model_callback")
 
 
 def test_install_governance_is_idempotent():
@@ -348,6 +350,18 @@ def test_before_tool_passes_args_and_session_state():
     assert kwargs["tool_name"] == "transfer"
     assert kwargs["tool_args"] == {"amount": 50}
     assert kwargs["session_state"]["tool_calls"] == 1
+
+
+def test_before_tool_caps_huge_args():
+    """A huge arg blob must not reach the evaluator uncapped (contrast with the
+    small-args case, which passes through unchanged)."""
+    ev = FakeEvaluator()
+    cb = _make_callbacks(ev)
+    huge = "x" * (_BEFORE_MODEL_TEXT_CAP + 5000)
+    cb.before_tool(FakeTool("t"), {"blob": huge}, tool_context=None)
+    tool_args = ev.calls[-1][1]["tool_args"]
+    assert set(tool_args) == {"_truncated"}
+    assert len(tool_args["_truncated"]) <= _BEFORE_MODEL_TEXT_CAP
 
 
 def test_after_tool_stringifies_dict_response():

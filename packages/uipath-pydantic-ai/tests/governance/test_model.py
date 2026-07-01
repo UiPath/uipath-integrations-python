@@ -48,29 +48,29 @@ class FakeEvaluator:
 
     def __init__(self, block_on: str | None = None) -> None:
         self.block_on = block_on
-        self.calls: List[tuple[str, dict]] = []
+        self.calls: List[tuple[str, dict[str, Any]]] = []
 
     def _record(self, hook: str, **kwargs: Any) -> None:
         self.calls.append((hook, kwargs))
         if self.block_on == hook:
             raise GovernanceBlockException("blocked")  # type: ignore[call-arg]
 
-    def evaluate_before_agent(self, **kwargs: Any) -> None:
+    def evaluate_before_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_agent", **kwargs)
 
-    def evaluate_after_agent(self, **kwargs: Any) -> None:
+    def evaluate_after_agent(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_agent", **kwargs)
 
-    def evaluate_before_model(self, **kwargs: Any) -> None:
+    def evaluate_before_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("before_model", **kwargs)
 
-    def evaluate_after_model(self, **kwargs: Any) -> None:
+    def evaluate_after_model(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_model", **kwargs)
 
-    def evaluate_tool_call(self, **kwargs: Any) -> None:
+    def evaluate_tool_call(self, *args: Any, **kwargs: Any) -> Any:
         self._record("tool_call", **kwargs)
 
-    def evaluate_after_tool(self, **kwargs: Any) -> None:
+    def evaluate_after_tool(self, *args: Any, **kwargs: Any) -> Any:
         self._record("after_tool", **kwargs)
 
 
@@ -279,10 +279,10 @@ async def test_governance_model_request_brackets_call():
             return ModelResponse(parts=[TextPart(content="Your balance is 1000.")])
 
     gm = GovernanceModel.__new__(GovernanceModel)  # bypass WrapperModel init
-    gm.wrapped = FakeWrapped()  # type: ignore[attr-defined]
+    gm.wrapped = FakeWrapped()  # type: ignore[assignment]  # test double, not a real Model
     gm._callbacks = cb
     messages = [ModelRequest(parts=[UserPromptPart(content="What is my balance?")])]
-    await gm.request(messages, None, None)
+    await gm.request(messages, None, None)  # type: ignore[arg-type]
 
     assert order == ["MODEL_CALL"]
     assert _hooks(ev) == ["before_model", "after_model"]
@@ -307,11 +307,11 @@ async def test_governance_model_request_stream_block_propagates():
             yield SimpleNamespace(get=lambda: denied)
 
     gm = GovernanceModel.__new__(GovernanceModel)  # bypass WrapperModel init
-    gm.wrapped = FakeWrapped()  # type: ignore[attr-defined]
+    gm.wrapped = FakeWrapped()  # type: ignore[assignment]  # test double, not a real Model
     gm._callbacks = cb
     messages = [ModelRequest(parts=[UserPromptPart(content="hi")])]
     with pytest.raises(GovernanceBlockException):
-        async with gm.request_stream(messages, None, None) as stream:
+        async with gm.request_stream(messages, None, None) as stream:  # type: ignore[arg-type]
             assert stream is not None
 
 
@@ -331,11 +331,11 @@ async def test_governance_model_request_stream_governs_finalized_response():
             yield SimpleNamespace(get=lambda: final)
 
     gm = GovernanceModel.__new__(GovernanceModel)
-    gm.wrapped = FakeWrapped()  # type: ignore[attr-defined]
+    gm.wrapped = FakeWrapped()  # type: ignore[assignment]  # test double, not a real Model
     gm._callbacks = cb
     messages = [ModelRequest(parts=[UserPromptPart(content="the question")])]
 
-    async with gm.request_stream(messages, None, None) as stream:
+    async with gm.request_stream(messages, None, None) as stream:  # type: ignore[arg-type]
         # BEFORE_MODEL already fired; AFTER_MODEL deferred until the stream
         # context exits (final response is assembled).
         assert _hooks(ev) == ["before_model"]
@@ -361,12 +361,12 @@ async def test_governance_model_request_stream_governs_even_if_consumer_raises()
             yield SimpleNamespace(get=lambda: final)
 
     gm = GovernanceModel.__new__(GovernanceModel)
-    gm.wrapped = FakeWrapped()  # type: ignore[attr-defined]
+    gm.wrapped = FakeWrapped()  # type: ignore[assignment]  # test double, not a real Model
     gm._callbacks = cb
     messages = [ModelRequest(parts=[UserPromptPart(content="hi")])]
 
     with pytest.raises(RuntimeError, match="consumer blew up"):
-        async with gm.request_stream(messages, None, None):
+        async with gm.request_stream(messages, None, None):  # type: ignore[arg-type]
             raise RuntimeError("consumer blew up")
 
     assert "after_model" in _hooks(ev)  # ran despite the consumer error

@@ -411,3 +411,75 @@ async def test_non_block_exception_is_swallowed(caplog):
             _noop_next,
         )
     assert any("governance check failed" in r.message for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# coverage: swallow on every callback + extraction / _coerce_args edges
+# --------------------------------------------------------------------------
+
+
+class _Boom:
+    """Evaluator whose every evaluate_* raises a non-block error."""
+
+    def __getattr__(self, _name: str) -> Any:
+        def _raise(*_a: Any, **_k: Any) -> None:
+            raise RuntimeError("evaluator bug")
+
+        return _raise
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda cb: cb.before_model([_msg("x")]),
+        lambda cb: cb.after_model(SimpleNamespace(text="y")),
+        lambda cb: cb.before_tool(FakeTool("t"), {}),
+        lambda cb: cb.after_tool(FakeTool("t"), {"r": 1}),
+    ],
+)
+def test_callbacks_swallow_non_block_errors(invoke, caplog):
+    cb = GovernanceCallbacks(evaluator=_Boom(), agent_name="a", session_id="s")
+    with caplog.at_level(logging.WARNING):
+        invoke(cb)  # must NOT raise — a governance bug can't break the run
+    assert any("governance check failed" in r.message for r in caplog.records)
+
+
+def test_text_extraction_and_coerce_edges():
+    from uipath_agent_framework.governance.middleware import _coerce_args, _stringify
+
+    M = GovernanceCallbacks
+    # _latest_message_text: empty + single (non-list)
+    assert M._latest_message_text([]) == ""
+    assert M._latest_message_text(SimpleNamespace(text="solo")) == "solo"
+    # _message_text: None / str / object-without-.text -> _stringify fallback
+    assert M._message_text(None) == ""
+    assert M._message_text("plain") == "plain"
+    assert isinstance(M._message_text(SimpleNamespace()), str)
+    # _response_text: None / .text / .messages[-1] / _stringify fallback
+    assert M._response_text(None) == ""
+    assert M._response_text(SimpleNamespace(text="via")) == "via"
+    assert "m" in M._response_text(
+        SimpleNamespace(text=None, messages=[SimpleNamespace(text="m")])
+    )
+    assert isinstance(M._response_text(SimpleNamespace(text=None, messages=None)), str)
+    # _coerce_args: None / Mapping / model_dump / non-coercible
+    assert _coerce_args(None) == {}
+    assert _coerce_args({"a": 1}) == {"a": 1}
+    assert _coerce_args(SimpleNamespace(model_dump=lambda: {"b": 2})) == {"b": 2}
+    assert _coerce_args(object()) == {}
+    # _stringify: str passthrough + circular-ref fallback (no crash)
+    assert _stringify("hi") == "hi"
+    circular: dict[str, Any] = {}
+    circular["self"] = circular
+    assert isinstance(_stringify(circular), str)
+
+
+def test_coerce_args_warns_on_model_dump_failure(caplog):
+    from uipath_agent_framework.governance.middleware import _coerce_args
+
+    def _bad() -> dict[str, Any]:
+        raise ValueError("boom")
+
+    with caplog.at_level(logging.WARNING):
+        assert _coerce_args(SimpleNamespace(model_dump=_bad)) == {}
+    assert any("could not coerce" in r.message for r in caplog.records)

@@ -2486,6 +2486,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "openinference-instrumentation-agent-framework" },
     { name = "uipath" },
+    { name = "uipath-core" },
     { name = "uipath-runtime" },
 ]
 
@@ -2515,6 +2516,7 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.43.0" },
     { name = "openinference-instrumentation-agent-framework", specifier = ">=0.1.0" },
     { name = "uipath", specifier = ">=2.10.0,<2.11.0" },
+    { name = "uipath-core", specifier = ">=0.5.18,<0.7.0" },
     { name = "uipath-runtime", specifier = ">=0.11.0,<0.12.0" },
 ]
 provides-extras = ["anthropic"]
@@ -2532,16 +2534,16 @@ dev = [
 
 [[package]]
 name = "uipath-core"
-version = "0.5.18"
+version = "0.5.28"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-instrumentation" },
     { name = "opentelemetry-sdk" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/b1/d4e555a1a2ccf298195a5f2968e538b0cea8592b3e03f43fc12b178d6c69/uipath_core-0.5.18.tar.gz", hash = "sha256:63ebe8bdb818ca30a4bc9ab0ea8171315680691429931282939359ce039401ab", size = 131988, upload-time = "2026-06-08T14:04:49.688Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/f9/8d2f1d98cbebbcf059cf4561f38f34ad4cd58423e4f15cad22bd297a2563/uipath_core-0.5.28.tar.gz", hash = "sha256:942987f6b612c64f93d612ad7b242276ed75f129fdd8f25bc71c24ec8887e388", size = 130578, upload-time = "2026-06-30T14:04:48.841Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/de/1a820b33f7bff4565d7649772bc54c88480ac7e70f707097f7da37d05157/uipath_core-0.5.18-py3-none-any.whl", hash = "sha256:351d6faeecfc6a0acea93182e01526f39c04a77e09fa0444be5f4fb580463f5a", size = 54572, upload-time = "2026-06-08T14:04:48.22Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/1e/385bb166232a57ebe938cc57ad2717f350bc922bb5d2ce31af84306b7569/uipath_core-0.5.28-py3-none-any.whl", hash = "sha256:b952a46a21710073cbc16d6d5684e9aa645c107f57a636b778cfb94aa81a1e48", size = 54980, upload-time = "2026-06-30T14:04:47.374Z" },
 ]
 
 [[package]]

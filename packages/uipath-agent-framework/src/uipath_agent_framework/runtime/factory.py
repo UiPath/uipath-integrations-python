@@ -11,6 +11,7 @@ from openinference.instrumentation.agent_framework import (
 )
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
+from uipath.core.adapters import EvaluatorProtocol
 from uipath.platform.resume_triggers import UiPathResumeTriggerHandler
 from uipath.runtime import (
     UiPathResumableRuntime,
@@ -21,6 +22,7 @@ from uipath.runtime import (
 )
 from uipath.runtime.errors import UiPathErrorCategory
 
+from uipath_agent_framework.governance import install_governance
 from uipath_agent_framework.runtime.config import AgentFrameworkConfig
 from uipath_agent_framework.runtime.errors import (
     UiPathAgentFrameworkErrorCode,
@@ -202,13 +204,25 @@ class UiPathAgentFrameworkRuntimeFactory:
         agent: WorkflowAgent,
         runtime_id: str,
         entrypoint: str,
+        evaluator: EvaluatorProtocol | None = None,
     ) -> UiPathRuntimeProtocol:
         """Create a runtime instance from an agent.
 
         Creates the runtime with a shared SqliteResumableStorage for persistent
         conversation history and HITL trigger management. Wraps with
         UiPathResumableRuntime for resume trigger lifecycle handling.
+
+        When ``evaluator`` is supplied, governance middleware is installed on
+        the agent graph in place via :func:`install_governance`.
         """
+        if evaluator is not None:
+            install_governance(
+                agent,
+                evaluator,
+                agent_name=entrypoint,
+                session_id=runtime_id,
+            )
+
         storage = await self._get_storage()
         assert storage.checkpoint_storage is not None
         checkpoint_storage = ScopedCheckpointStorage(
@@ -239,7 +253,9 @@ class UiPathAgentFrameworkRuntimeFactory:
         Args:
             entrypoint: Agent name from agent_framework.json
             runtime_id: Unique identifier for the runtime instance
-            **kwargs: Additional keyword arguments (unused)
+            **kwargs: Forwarded factory kwargs. Recognized: ``evaluator``
+                (``EvaluatorProtocol``) — when present, governance middleware
+                is installed on the agent via :func:`install_governance`.
 
         Returns:
             Configured runtime instance with agent
@@ -250,6 +266,7 @@ class UiPathAgentFrameworkRuntimeFactory:
             agent=agent,
             runtime_id=runtime_id,
             entrypoint=entrypoint,
+            evaluator=kwargs.get("evaluator"),
         )
 
     async def dispose(self) -> None:

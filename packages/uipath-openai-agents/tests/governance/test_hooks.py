@@ -25,6 +25,11 @@ from uipath.core.governance.exceptions import GovernanceBlockException
 from uipath_openai_agents.governance.hooks import (
     _BEFORE_MODEL_TEXT_CAP,
     GovernanceAgentHooks,
+    _content_text,
+    _item_text,
+    _latest_input_text,
+    _model_response_text,
+    _stringify,
     install_governance,
 )
 
@@ -393,6 +398,87 @@ async def test_hooks_return_none():
     assert await cb.on_llm_end(None, FakeAgent(), SimpleNamespace(output=[])) is None  # type: ignore[func-returns-value]
     assert await cb.on_tool_start(None, FakeAgent(), FakeTool("t")) is None  # type: ignore[func-returns-value]
     assert await cb.on_tool_end(None, FakeAgent(), FakeTool("t"), {}) is None  # type: ignore[func-returns-value]
+
+
+# --------------------------------------------------------------------------
+# coverage: swallow paths on every hook, boundary delegation, extraction edges
+# --------------------------------------------------------------------------
+
+
+class _Boom:
+    """Evaluator whose every evaluate_* raises a non-block error."""
+
+    def __getattr__(self, _name: str) -> Any:
+        def _raise(*_a: Any, **_k: Any) -> None:
+            raise RuntimeError("evaluator bug")
+
+        return _raise
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda cb: cb.on_llm_end(None, FakeAgent(), SimpleNamespace(output=[])),
+        lambda cb: cb.on_tool_start(None, FakeAgent(), FakeTool("t")),
+        lambda cb: cb.on_tool_end(None, FakeAgent(), FakeTool("t"), {"r": 1}),
+    ],
+)
+async def test_model_and_tool_hooks_swallow_non_block_errors(invoke, caplog):
+    cb = GovernanceAgentHooks(evaluator=_Boom(), agent_name="a", session_id="s")  # type: ignore[arg-type]
+    with _capture_hooks_logs(caplog):
+        await invoke(cb)  # must NOT raise — a governance bug can't break the run
+    assert any("governance check failed" in r.message for r in caplog.records)
+
+
+class _InnerBoundary:
+    def __init__(self) -> None:
+        self.seen: List[str] = []
+
+    async def on_start(self, *_a: Any) -> None:
+        self.seen.append("on_start")
+
+    async def on_end(self, *_a: Any) -> None:
+        self.seen.append("on_end")
+
+    async def on_handoff(self, *_a: Any) -> None:
+        self.seen.append("on_handoff")
+
+
+async def test_boundary_hooks_delegate_to_inner():
+    inner = _InnerBoundary()
+    cb = _make_hooks(FakeEvaluator(), inner=inner)
+    await cb.on_start(None, FakeAgent())
+    await cb.on_end(None, FakeAgent(), "out")
+    await cb.on_handoff(None, FakeAgent(), FakeAgent())
+    assert inner.seen == ["on_start", "on_end", "on_handoff"]
+
+
+async def test_delegate_swallows_inner_hook_error(caplog):
+    class _BadInner:
+        async def on_llm_start(self, *_a: Any) -> None:
+            raise RuntimeError("inner boom")
+
+    cb = _make_hooks(FakeEvaluator(), inner=_BadInner())
+    with _capture_hooks_logs(caplog):
+        await cb.on_llm_start(None, FakeAgent(), None, [_msg("x")])  # must not raise
+    assert any("chained user hook" in r.message for r in caplog.records)
+
+
+def test_extraction_edges():
+    # _stringify: str passthrough; circular ref → str() fallback (not a crash)
+    assert _stringify("hi") == "hi"
+    circular: dict[str, Any] = {}
+    circular["self"] = circular
+    assert isinstance(_stringify(circular), str)
+    # _item_text: tool-result output-only item
+    assert "42" in _item_text({"output": {"balance": 42}})
+    # _content_text: object exposing .text, and a bare-string part in a list
+    assert _content_text(SimpleNamespace(text="hello")) == "hello"
+    assert "raw" in _content_text(["raw", {"text": "block"}])
+    # _model_response_text: response with no .output → falls back to item text
+    assert _model_response_text(SimpleNamespace(content="direct")) == "direct"
+    # _latest_input_text: single (non-list) item
+    assert _latest_input_text(_msg("solo")) == "solo"
 
 
 # --------------------------------------------------------------------------

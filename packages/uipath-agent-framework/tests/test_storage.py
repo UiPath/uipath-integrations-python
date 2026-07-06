@@ -4,6 +4,11 @@ import os
 import tempfile
 
 from agent_framework import WorkflowCheckpoint
+from uipath.runtime import (
+    UiPathResumeTrigger,
+    UiPathResumeTriggerName,
+    UiPathResumeTriggerType,
+)
 
 from uipath_agent_framework.runtime.resumable_storage import (
     ScopedCheckpointStorage,
@@ -235,6 +240,112 @@ class TestSqliteCheckpointStorage:
             loaded = await cs2.load("cp-persist")
             assert loaded.checkpoint_id == "cp-persist"
             await storage2.dispose()
+
+    async def test_delete_triggers(self):
+        """delete_triggers removes sibling triggers and preserves runtime isolation."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+
+            api_trigger = UiPathResumeTrigger(
+                trigger_type=UiPathResumeTriggerType.API,
+                trigger_name=UiPathResumeTriggerName.API,
+                item_key="first",
+                interrupt_id="interrupt-1",
+            )
+            timer_trigger = UiPathResumeTrigger(
+                trigger_type=UiPathResumeTriggerType.TIMER,
+                trigger_name=UiPathResumeTriggerName.TIMER,
+                item_key="third",
+                interrupt_id="interrupt-1",
+            )
+            unrelated_trigger = UiPathResumeTrigger(
+                trigger_type=UiPathResumeTriggerType.TASK,
+                trigger_name=UiPathResumeTriggerName.TASK,
+                item_key="second",
+                interrupt_id="interrupt-2",
+            )
+            other_runtime_trigger = UiPathResumeTrigger(
+                trigger_type=UiPathResumeTriggerType.API,
+                trigger_name=UiPathResumeTriggerName.API,
+                item_key="other-runtime",
+                interrupt_id="interrupt-1",
+            )
+
+            await storage.save_triggers(
+                "runtime-a", [api_trigger, timer_trigger, unrelated_trigger]
+            )
+            await storage.save_triggers("runtime-b", [other_runtime_trigger])
+
+            await storage.delete_triggers("runtime-a", [api_trigger, timer_trigger])
+
+            runtime_a_triggers = await storage.get_triggers("runtime-a")
+            assert runtime_a_triggers is not None
+            assert [trigger.interrupt_id for trigger in runtime_a_triggers] == [
+                "interrupt-2"
+            ]
+            assert runtime_a_triggers[0].item_key == "second"
+
+            runtime_b_triggers = await storage.get_triggers("runtime-b")
+            assert runtime_b_triggers is not None
+            assert len(runtime_b_triggers) == 1
+            assert runtime_b_triggers[0].item_key == "other-runtime"
+            await storage.dispose()
+
+    async def test_delete_trigger_deletes_single_trigger(self):
+        """delete_trigger removes one trigger through the compatibility wrapper."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+
+            trigger = UiPathResumeTrigger(
+                trigger_type=UiPathResumeTriggerType.API,
+                trigger_name=UiPathResumeTriggerName.API,
+                item_key="first",
+                interrupt_id="interrupt-1",
+            )
+            unrelated_trigger = UiPathResumeTrigger(
+                trigger_type=UiPathResumeTriggerType.TASK,
+                trigger_name=UiPathResumeTriggerName.TASK,
+                item_key="second",
+                interrupt_id="interrupt-2",
+            )
+
+            await storage.save_triggers("runtime-a", [trigger, unrelated_trigger])
+
+            await storage.delete_trigger("runtime-a", trigger)
+
+            runtime_a_triggers = await storage.get_triggers("runtime-a")
+            assert runtime_a_triggers is not None
+            assert [trigger.interrupt_id for trigger in runtime_a_triggers] == [
+                "interrupt-2"
+            ]
+            await storage.dispose()
+
+    async def test_delete_triggers_empty_list_is_noop(self):
+        """delete_triggers with an empty list leaves stored triggers unchanged."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            storage = SqliteResumableStorage(db_path)
+            await storage.setup()
+
+            trigger = UiPathResumeTrigger(
+                trigger_type=UiPathResumeTriggerType.API,
+                trigger_name=UiPathResumeTriggerName.API,
+                item_key="first",
+                interrupt_id="interrupt-1",
+            )
+            await storage.save_triggers("runtime-a", [trigger])
+
+            await storage.delete_triggers("runtime-a", [])
+
+            runtime_a_triggers = await storage.get_triggers("runtime-a")
+            assert runtime_a_triggers is not None
+            assert len(runtime_a_triggers) == 1
+            assert runtime_a_triggers[0].item_key == "first"
+            await storage.dispose()
 
 
 class TestScopedCheckpointStorage:

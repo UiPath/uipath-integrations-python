@@ -162,18 +162,29 @@ class SqliteResumableStorage:
         self, runtime_id: str, trigger: UiPathResumeTrigger
     ) -> None:
         """Delete resume trigger from storage."""
+        await self.delete_triggers(runtime_id, [trigger])
+
+    async def delete_triggers(
+        self, runtime_id: str, triggers: list[UiPathResumeTrigger]
+    ) -> None:
+        """Delete resume triggers from storage."""
+        interrupt_ids = [trigger.interrupt_id for trigger in triggers]
+        if not interrupt_ids:
+            return
+
         try:
             db = await self._get_db()
             await db.execute(
-                """
+                f"""
                 DELETE FROM resume_triggers
-                WHERE runtime_id = ? AND interrupt_id = ?
+                WHERE runtime_id = ?
+                AND interrupt_id IN ({",".join("?" for _ in interrupt_ids)})
                 """,
-                (runtime_id, trigger.interrupt_id),
+                (runtime_id, *interrupt_ids),
             )
             await db.commit()
         except Exception as exc:
-            msg = f"Failed to delete resume trigger from database {self.storage_path!r}: {exc}"
+            msg = f"Failed to delete resume triggers from database {self.storage_path!r}: {exc}"
             raise UiPathFaultedTriggerError(ErrorCategory.SYSTEM, msg) from exc
 
     async def save_context(self, runtime_id: str, context_dict: dict[str, Any]) -> None:

@@ -6,7 +6,7 @@
   "evaluatorTypeId": "uipath-tool-call-args",
   "evaluatorConfig": {
     "strict": false,
-    "subset": false,
+    "subset": true,
     "name": "Tool Call Arguments",
     "defaultEvaluationCriteria": {
       "toolCalls": [

@@ -274,6 +274,97 @@ class TestTriggerOperations:
         assert retrieved_a[0].item_key == "runtime1-trigger"
         assert retrieved_b[0].item_key == "runtime2-trigger"
 
+    @pytest.mark.asyncio
+    async def test_delete_triggers(self, storage: SqliteResumableStorage):
+        """Test deleting sibling triggers while preserving runtime isolation."""
+        api_trigger = UiPathResumeTrigger(
+            trigger_type=UiPathResumeTriggerType.API,
+            trigger_name=UiPathResumeTriggerName.API.value,
+            item_key="first",
+            interrupt_id="interrupt-1",
+        )
+        timer_trigger = UiPathResumeTrigger(
+            trigger_type=UiPathResumeTriggerType.TIMER,
+            trigger_name=UiPathResumeTriggerName.TIMER.value,
+            item_key="third",
+            interrupt_id="interrupt-1",
+        )
+        unrelated_trigger = UiPathResumeTrigger(
+            trigger_type=UiPathResumeTriggerType.TASK,
+            trigger_name=UiPathResumeTriggerName.TASK.value,
+            item_key="second",
+            interrupt_id="interrupt-2",
+        )
+        other_runtime_trigger = UiPathResumeTrigger(
+            trigger_type=UiPathResumeTriggerType.API,
+            trigger_name=UiPathResumeTriggerName.API.value,
+            item_key="other-runtime",
+            interrupt_id="interrupt-1",
+        )
+
+        await storage.save_triggers(
+            "runtime-a", [api_trigger, timer_trigger, unrelated_trigger]
+        )
+        await storage.save_triggers("runtime-b", [other_runtime_trigger])
+
+        await storage.delete_triggers("runtime-a", [api_trigger, timer_trigger])
+
+        retrieved_a = await storage.get_triggers("runtime-a")
+        assert retrieved_a is not None
+        assert [trigger.interrupt_id for trigger in retrieved_a] == ["interrupt-2"]
+        assert retrieved_a[0].item_key == "second"
+
+        retrieved_b = await storage.get_triggers("runtime-b")
+        assert retrieved_b is not None
+        assert len(retrieved_b) == 1
+        assert retrieved_b[0].item_key == "other-runtime"
+
+    @pytest.mark.asyncio
+    async def test_delete_trigger_deletes_single_trigger(
+        self, storage: SqliteResumableStorage
+    ):
+        """Test deleting one trigger through the compatibility wrapper."""
+        trigger = UiPathResumeTrigger(
+            trigger_type=UiPathResumeTriggerType.API,
+            trigger_name=UiPathResumeTriggerName.API.value,
+            item_key="first",
+            interrupt_id="interrupt-1",
+        )
+        unrelated_trigger = UiPathResumeTrigger(
+            trigger_type=UiPathResumeTriggerType.TASK,
+            trigger_name=UiPathResumeTriggerName.TASK.value,
+            item_key="second",
+            interrupt_id="interrupt-2",
+        )
+
+        await storage.save_triggers("runtime-a", [trigger, unrelated_trigger])
+
+        await storage.delete_trigger("runtime-a", trigger)
+
+        retrieved = await storage.get_triggers("runtime-a")
+        assert retrieved is not None
+        assert [trigger.interrupt_id for trigger in retrieved] == ["interrupt-2"]
+
+    @pytest.mark.asyncio
+    async def test_delete_triggers_empty_list_is_noop(
+        self, storage: SqliteResumableStorage
+    ):
+        """Test deleting an empty trigger list leaves stored triggers unchanged."""
+        trigger = UiPathResumeTrigger(
+            trigger_type=UiPathResumeTriggerType.API,
+            trigger_name=UiPathResumeTriggerName.API.value,
+            item_key="first",
+            interrupt_id="interrupt-1",
+        )
+        await storage.save_triggers("runtime-a", [trigger])
+
+        await storage.delete_triggers("runtime-a", [])
+
+        retrieved = await storage.get_triggers("runtime-a")
+        assert retrieved is not None
+        assert len(retrieved) == 1
+        assert retrieved[0].item_key == "first"
+
 
 class TestContextOperations:
     """Test workflow context save and load operations."""

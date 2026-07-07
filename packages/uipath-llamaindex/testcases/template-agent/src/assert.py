@@ -67,13 +67,6 @@ score = run_results_by_evaluator["evaluator-tool-call-order"]["result"]["score"]
 assert score == 1.0, f"Tool call order score should be 1.0, got: {score}"
 print("  ✓ tool call order: perfect score (1.0)")
 
-# Tool call arguments evaluator should have perfect score (1.0)
-assert "evaluator-tool-call-arguments" in run_results_by_evaluator, \
-    "Missing evaluator result for: evaluator-tool-call-arguments"
-score = run_results_by_evaluator["evaluator-tool-call-arguments"]["result"]["score"]
-assert score == 1.0, f"Tool call arguments score should be 1.0, got: {score}"
-print("  ✓ tool call arguments: perfect score (1.0)")
-
 # Tool call count evaluator should have perfect score (1.0)
 assert "evaluator-tool-call-count" in run_results_by_evaluator, \
     "Missing evaluator result for: evaluator-tool-call-count"

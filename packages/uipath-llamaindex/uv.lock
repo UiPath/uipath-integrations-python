@@ -3571,7 +3571,13 @@ vertex = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "aiobotocore" },
+    { name = "boto3" },
     { name = "filelock" },
+    { name = "google-genai" },
+    { name = "llama-index-llms-bedrock" },
+    { name = "llama-index-llms-bedrock-converse" },
+    { name = "llama-index-llms-google-genai" },
     { name = "mypy" },
     { name = "numpy" },
     { name = "pre-commit" },
@@ -3604,7 +3610,13 @@ provides-extras = ["bedrock", "vertex"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "aiobotocore", specifier = ">=2.5.0" },
+    { name = "boto3", specifier = ">=1.28.0" },
     { name = "filelock", specifier = ">=3.20.3" },
+    { name = "google-genai", specifier = ">=1.0.0" },
+    { name = "llama-index-llms-bedrock", specifier = ">=0.3.0" },
+    { name = "llama-index-llms-bedrock-converse", specifier = ">=0.3.0" },
+    { name = "llama-index-llms-google-genai", specifier = ">=0.8.0" },
     { name = "mypy", specifier = ">=1.14.1" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pre-commit", specifier = ">=4.5.1" },

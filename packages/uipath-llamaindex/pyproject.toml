@@ -64,6 +64,13 @@ dev = [
     "virtualenv>=20.36.1",
     "pytest-asyncio>=1.0.0",
     "numpy>=1.24.0",
+    # Optional-extra backends, required so the vertex/bedrock LLM tests are collectable.
+    "llama-index-llms-bedrock>=0.3.0",
+    "llama-index-llms-bedrock-converse>=0.3.0",
+    "boto3>=1.28.0",
+    "aiobotocore>=2.5.0",
+    "llama-index-llms-google-genai>=0.8.0",
+    "google-genai>=1.0.0",
 ]
 
 [tool.ruff]

@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "id": "DefaultEvaluationSet",
+  "name": "Default Evaluation Set",
+  "evaluatorRefs": [
+    "evaluator-llm-judge-output",
+    "evaluator-tool-call-order",
+    "evaluator-tool-call-count",
+    "evaluator-tool-call-arguments"
+  ],
+  "evaluations": [
+    {
+      "id": "7d1b0c3e-2f4a-4d1b-9c2e-5a6f8b0d3e11",
+      "name": "Weather in Paris",
+      "inputs": {
+        "city": "Paris"
+      },
+      "evaluationCriterias": {
+        "evaluator-llm-judge-output": {
+          "expectedOutput": "{\n  \"city\": \"Paris\",\n  \"temperature_celsius\": 18.0,\n  \"summary\": \"It is 18°C and partly cloudy in Paris.\"\n}"
+        },
+        "evaluator-tool-call-order": null,
+        "evaluator-tool-call-count": null,
+        "evaluator-tool-call-arguments": null
+      },
+      "createdAt": "2026-08-08T10:00:00.000Z",
+      "updatedAt": "2026-08-08T10:00:00.000Z"
+    }
+  ],
+  "fileName": "evaluation-set-default.json",
+  "updatedAt": "2026-08-08T10:00:00.000Z",
+  "selectedEntrypoint": "agent"
+}

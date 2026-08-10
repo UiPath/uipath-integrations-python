@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "fileName": "tool-call-count.json",
+  "id": "evaluator-tool-call-count",
+  "description": "Verify tool call counts match expected values",
+  "evaluatorTypeId": "uipath-tool-call-count",
+  "evaluatorConfig": {
+    "strict": false,
+    "name": "Tool Call Count",
+    "defaultEvaluationCriteria": {
+      "toolCallsCount": {
+        "mcp__weather__get_weather": [
+          "=",
+          1
+        ]
+      }
+    }
+  },
+  "createdAt": "2026-08-08T10:00:00.000Z",
+  "updatedAt": "2026-08-08T10:00:00.000Z"
+}

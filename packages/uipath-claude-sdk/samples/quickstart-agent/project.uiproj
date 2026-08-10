@@ -1,0 +1,6 @@
+{
+  "ProjectType": "Agent",
+  "Name": "claude-quickstart-agent",
+  "Description": "UiPath Claude Agent SDK Quickstart Agent",
+  "MainFile": null
+}

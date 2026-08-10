@@ -1,0 +1,14 @@
+[project]
+name = "uipath-claude-sdk-template-agent"
+version = "0.0.1"
+description = "uipath-claude-sdk-template-agent"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+dependencies = [
+    "uipath-claude-sdk>=0.1.0, <0.2.0",
+]
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+    "uipath-dev>=0.0.74",
+]

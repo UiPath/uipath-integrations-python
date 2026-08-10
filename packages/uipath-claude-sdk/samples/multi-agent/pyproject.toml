@@ -1,0 +1,18 @@
+[project]
+name = "claude-multi-agent"
+version = "0.0.2"
+description = "UiPath Claude Agent SDK Multi Agent"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-claude-sdk",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]
+
+[tool.uv.sources]
+uipath-claude-sdk = { path = "../../", editable = true }

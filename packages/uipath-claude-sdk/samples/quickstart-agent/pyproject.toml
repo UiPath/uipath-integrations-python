@@ -1,0 +1,17 @@
+[project]
+name = "quickstart-agent"
+version = "0.0.1"
+description = "Quickstart Claude Agent SDK agent example"
+authors = [{ name = "John Doe" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "uipath",
+    "uipath-claude-sdk",
+    "claude-agent-sdk>=0.1.71",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]

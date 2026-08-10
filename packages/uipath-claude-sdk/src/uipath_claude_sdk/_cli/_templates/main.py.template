@@ -1,0 +1,15 @@
+"""Claude Agent SDK agent definition."""
+
+from claude_agent_sdk import ClaudeAgentOptions
+
+agent = ClaudeAgentOptions(
+    # Bedrock ARN-style model ID, routed through the UiPath LLM Gateway.
+    # With ANTHROPIC_API_KEY set, use a direct model ID (e.g. "claude-sonnet-4-5").
+    model="anthropic.claude-sonnet-4-5-20250929-v1:0",
+    system_prompt="You are a helpful assistant.",
+    max_turns=25,
+    permission_mode="bypassPermissions",
+    tools=[],
+    # mcp_servers={...},
+    # output_format={"type": "json_schema", "schema": {...}},
+)

@@ -1,0 +1,134 @@
+[project]
+name = "uipath-claude-sdk"
+version = "0.1.0"
+description = "Python SDK that enables developers to build and deploy Claude Agent SDK agents to the UiPath Cloud Platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "claude-agent-sdk>=0.1.71, <0.3.0",
+    "aiohttp>=3.9.0",
+    "httpx>=0.27.0",
+    "botocore>=1.34.0",
+    "aiosqlite>=0.19.0",
+    "uipath>=2.13.0, <2.14.0",
+    "uipath-runtime>=0.12.1, <0.13.0",
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+maintainers = [
+    { name = "Radu Mocanu", email = "radu.mocanu@uipath.com" }
+]
+
+[project.entry-points."uipath.middlewares"]
+register = "uipath_claude_sdk.middlewares:register_middleware"
+
+[project.entry-points."uipath.runtime.factories"]
+claude = "uipath_claude_sdk.runtime:register_runtime_factory"
+
+[project.urls]
+Homepage = "https://uipath.com"
+Repository = "https://github.com/UiPath/uipath-integrations-python"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.14.1",
+    "ruff>=0.9.4",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.1",
+    "pre-commit>=4.1.0",
+    "pytest-asyncio>=1.0.0",
+]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"*" = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+plugins = [
+  "pydantic.mypy"
+]
+exclude = [
+    "samples/.*",
+    "testcases/.*"
+]
+follow_imports = "silent"
+warn_redundant_casts = true
+warn_unused_ignores = false
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "claude_agent_sdk"
+ignore_missing_imports = true
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-ra -q --cov=src/uipath_claude_sdk --cov-report=term-missing"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_mode = "auto"
+
+[tool.uv]
+exclude-newer = "2 days"
+
+[tool.uv.exclude-newer-package]
+uipath = false
+uipath-core = false
+uipath-platform = false
+uipath-runtime = false
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
+
+[tool.coverage.run]
+source = ["src/uipath_claude_sdk"]
+relative_files = true
+omit = [
+  "*/tests/*",
+  "*/__pycache__/*",
+  "*/site-packages/*",
+  "*/conftest.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "@(abc\\.)?abstractmethod",
+]
+
+[[tool.mypy.overrides]]
+module = "botocore.*"
+ignore_missing_imports = true

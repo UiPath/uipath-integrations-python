@@ -38,12 +38,16 @@ jobs:
   test-llamaindex:
     name: Test (uipath-llamaindex, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        os: [uipath-ubuntu-latest, uipath-windows-latest]
+        # Stock labels on purpose: GitHub builds the check-run name from these
+        # matrix values, and branch protection requires the stock names
+        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
+        # uipath- pool, so the jobs run on uipath runners either way.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -108,12 +112,16 @@ jobs:
   test-openai-agents:
     name: Test (uipath-openai-agents, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        os: [uipath-ubuntu-latest, uipath-windows-latest]
+        # Stock labels on purpose: GitHub builds the check-run name from these
+        # matrix values, and branch protection requires the stock names
+        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
+        # uipath- pool, so the jobs run on uipath runners either way.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -178,12 +186,16 @@ jobs:
   test-google-adk:
     name: Test (uipath-google-adk, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        os: [uipath-ubuntu-latest, uipath-windows-latest]
+        # Stock labels on purpose: GitHub builds the check-run name from these
+        # matrix values, and branch protection requires the stock names
+        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
+        # uipath- pool, so the jobs run on uipath runners either way.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -248,12 +260,16 @@ jobs:
   test-pydantic-ai:
     name: Test (uipath-pydantic-ai, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        os: [uipath-ubuntu-latest, uipath-windows-latest]
+        # Stock labels on purpose: GitHub builds the check-run name from these
+        # matrix values, and branch protection requires the stock names
+        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
+        # uipath- pool, so the jobs run on uipath runners either way.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -318,12 +334,16 @@ jobs:
   test-agent-framework:
     name: Test (uipath-agent-framework, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        os: [uipath-ubuntu-latest, uipath-windows-latest]
+        # Stock labels on purpose: GitHub builds the check-run name from these
+        # matrix values, and branch protection requires the stock names
+        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
+        # uipath- pool, so the jobs run on uipath runners either way.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check if package changed
         id: check

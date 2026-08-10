@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish-docs:
-    runs-on: ubuntu-latest
+    runs-on: uipath-ubuntu-latest
     if: ${{ github.repository == 'UiPath/uipath-integrations-python' }}
     steps:
       - name: Trigger Publish Docs

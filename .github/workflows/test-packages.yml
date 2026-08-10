@@ -38,16 +38,12 @@ jobs:
   test-llamaindex:
     name: Test (uipath-llamaindex, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        # Stock labels on purpose: GitHub builds the check-run name from these
-        # matrix values, and branch protection requires the stock names
-        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
-        # uipath- pool, so the jobs run on uipath runners either way.
-        os: [ubuntu-latest, windows-latest]
+        os: [uipath-ubuntu-latest, uipath-windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -84,17 +80,17 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-llamaindex
         run: uv run pytest
 
       - name: Run tests with coverage
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13'
         working-directory: packages/uipath-llamaindex
         run: uv run pytest --cov-report=xml --cov-report=html --tb=short
 
       - name: Upload coverage HTML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-html-uipath-llamaindex
@@ -102,7 +98,7 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage XML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-xml-uipath-llamaindex
@@ -112,16 +108,12 @@ jobs:
   test-openai-agents:
     name: Test (uipath-openai-agents, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        # Stock labels on purpose: GitHub builds the check-run name from these
-        # matrix values, and branch protection requires the stock names
-        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
-        # uipath- pool, so the jobs run on uipath runners either way.
-        os: [ubuntu-latest, windows-latest]
+        os: [uipath-ubuntu-latest, uipath-windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -158,17 +150,17 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-openai-agents
         run: uv run pytest
 
       - name: Run tests with coverage
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13'
         working-directory: packages/uipath-openai-agents
         run: uv run pytest --cov-report=xml --cov-report=html --tb=short
 
       - name: Upload coverage HTML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-html-uipath-openai-agents
@@ -176,7 +168,7 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage XML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-xml-uipath-openai-agents
@@ -186,16 +178,12 @@ jobs:
   test-google-adk:
     name: Test (uipath-google-adk, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        # Stock labels on purpose: GitHub builds the check-run name from these
-        # matrix values, and branch protection requires the stock names
-        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
-        # uipath- pool, so the jobs run on uipath runners either way.
-        os: [ubuntu-latest, windows-latest]
+        os: [uipath-ubuntu-latest, uipath-windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -232,17 +220,17 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-google-adk
         run: uv run pytest
 
       - name: Run tests with coverage
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13'
         working-directory: packages/uipath-google-adk
         run: uv run pytest --cov-report=xml --cov-report=html --tb=short
 
       - name: Upload coverage HTML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-html-uipath-google-adk
@@ -250,7 +238,7 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage XML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-xml-uipath-google-adk
@@ -260,16 +248,12 @@ jobs:
   test-pydantic-ai:
     name: Test (uipath-pydantic-ai, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        # Stock labels on purpose: GitHub builds the check-run name from these
-        # matrix values, and branch protection requires the stock names
-        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
-        # uipath- pool, so the jobs run on uipath runners either way.
-        os: [ubuntu-latest, windows-latest]
+        os: [uipath-ubuntu-latest, uipath-windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -306,17 +290,17 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-pydantic-ai
         run: uv run pytest
 
       - name: Run tests with coverage
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13'
         working-directory: packages/uipath-pydantic-ai
         run: uv run pytest --cov-report=xml --cov-report=html --tb=short
 
       - name: Upload coverage HTML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-html-uipath-pydantic-ai
@@ -324,7 +308,7 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage XML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-xml-uipath-pydantic-ai
@@ -334,16 +318,12 @@ jobs:
   test-agent-framework:
     name: Test (uipath-agent-framework, ${{ matrix.python-version }}, ${{ matrix.os }})
     needs: detect-changed-packages
-    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
-        # Stock labels on purpose: GitHub builds the check-run name from these
-        # matrix values, and branch protection requires the stock names
-        # ("Test (3.11, ubuntu-latest)"). runs-on below maps them onto the
-        # uipath- pool, so the jobs run on uipath runners either way.
-        os: [ubuntu-latest, windows-latest]
+        os: [uipath-ubuntu-latest, uipath-windows-latest]
     steps:
       - name: Check if package changed
         id: check
@@ -380,17 +360,17 @@ jobs:
         run: uv sync --all-extras --python ${{ matrix.python-version }}
 
       - name: Run tests
-        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13')
         working-directory: packages/uipath-agent-framework
         run: uv run pytest
 
       - name: Run tests with coverage
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13'
         working-directory: packages/uipath-agent-framework
         run: uv run pytest --cov-report=xml --cov-report=html --tb=short
 
       - name: Upload coverage HTML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-html-uipath-agent-framework
@@ -398,7 +378,7 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage XML report
-        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'uipath-ubuntu-latest' && matrix.python-version == '3.13' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: coverage-xml-uipath-agent-framework

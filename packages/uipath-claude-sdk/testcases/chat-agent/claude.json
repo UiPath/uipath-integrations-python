@@ -1,0 +1,5 @@
+{
+  "agents": {
+    "agent": "src/main.py:agent"
+  }
+}

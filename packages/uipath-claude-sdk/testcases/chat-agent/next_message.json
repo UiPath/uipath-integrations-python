@@ -1,0 +1,15 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "contentParts": [
+        {
+          "mimeType": "text/plain",
+          "data": {
+            "inline": "Remind me which room you suggested and what the meeting was called."
+          }
+        }
+      ]
+    }
+  ]
+}

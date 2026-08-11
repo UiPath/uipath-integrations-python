@@ -1,0 +1,20 @@
+# Copied from ../../template by run.sh.
+main.py
+input.json
+uipath.json
+claude.json
+evaluations/
+
+# Produced by the run.
+eval_output.json
+traces.jsonl
+
+# Produced by `uipath init`.
+.agent/
+.claude/
+agent.mermaid
+AGENTS.md
+CLAUDE.md
+bindings.json
+entry-points.json
+project.uiproj

@@ -405,11 +405,81 @@ jobs:
           path: packages/uipath-agent-framework/coverage.xml
           retention-days: 30
 
+  test-claude-sdk:
+    name: Test (uipath-claude-sdk, ${{ matrix.python-version }}, ${{ matrix.os }})
+    needs: detect-changed-packages
+    runs-on: ${{ matrix.os == 'windows-latest' && 'uipath-windows-latest' || 'uipath-ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Check if package changed
+        id: check
+        shell: bash
+        run: |
+          if echo '${{ needs.detect-changed-packages.outputs.packages }}' | jq -e 'index("uipath-claude-sdk")' > /dev/null; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+          else
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip
+        if: steps.check.outputs.skip == 'true'
+        shell: bash
+        run: echo "Skipping - no changes to uipath-claude-sdk"
+
+      - name: Checkout
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: Setup uv
+        if: steps.check.outputs.skip != 'true'
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+
+      - name: Setup Python
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        if: steps.check.outputs.skip != 'true'
+        working-directory: packages/uipath-claude-sdk
+        run: uv sync --all-extras --python ${{ matrix.python-version }}
+
+      - name: Run tests
+        if: steps.check.outputs.skip != 'true' && !(matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13')
+        working-directory: packages/uipath-claude-sdk
+        run: uv run pytest
+
+      - name: Run tests with coverage
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        working-directory: packages/uipath-claude-sdk
+        run: uv run pytest --cov-report=xml --cov-report=html --tb=short
+
+      - name: Upload coverage HTML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: coverage-html-uipath-claude-sdk
+          path: packages/uipath-claude-sdk/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML report
+        if: steps.check.outputs.skip != 'true' && matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: coverage-xml-uipath-claude-sdk
+          path: packages/uipath-claude-sdk/coverage.xml
+          retention-days: 30
+
   sonarcloud:
     name: SonarCloud
-    needs: [test-llamaindex, test-openai-agents, test-google-adk, test-pydantic-ai, test-agent-framework]
+    needs: [test-llamaindex, test-openai-agents, test-google-adk, test-pydantic-ai, test-agent-framework, test-claude-sdk]
     runs-on: uipath-ubuntu-latest
-    if: always() && needs.test-llamaindex.result != 'failure' && needs.test-openai-agents.result != 'failure' && needs.test-google-adk.result != 'failure' && needs.test-pydantic-ai.result != 'failure' && needs.test-agent-framework.result != 'failure'
+    if: always() && needs.test-llamaindex.result != 'failure' && needs.test-openai-agents.result != 'failure' && needs.test-google-adk.result != 'failure' && needs.test-pydantic-ai.result != 'failure' && needs.test-agent-framework.result != 'failure' && needs.test-claude-sdk.result != 'failure'
     permissions:
       contents: read
     steps:
@@ -453,6 +523,13 @@ jobs:
           name: coverage-xml-uipath-agent-framework
           path: packages/uipath-agent-framework
 
+      - name: Download uipath-claude-sdk coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        continue-on-error: true
+        with:
+          name: coverage-xml-uipath-claude-sdk
+          path: packages/uipath-claude-sdk
+
       - name: Rewrite coverage XML <source> to repo-relative paths
         run: |
           sed -i 's|<source>src/uipath_llamaindex</source>|<source>packages/uipath-llamaindex/src/uipath_llamaindex</source>|g' packages/uipath-llamaindex/coverage.xml || true
@@ -460,6 +537,7 @@ jobs:
           sed -i 's|<source>src/uipath_google_adk</source>|<source>packages/uipath-google-adk/src/uipath_google_adk</source>|g' packages/uipath-google-adk/coverage.xml || true
           sed -i 's|<source>src/uipath_pydantic_ai</source>|<source>packages/uipath-pydantic-ai/src/uipath_pydantic_ai</source>|g' packages/uipath-pydantic-ai/coverage.xml || true
           sed -i 's|<source>src/uipath_agent_framework</source>|<source>packages/uipath-agent-framework/src/uipath_agent_framework</source>|g' packages/uipath-agent-framework/coverage.xml || true
+          sed -i 's|<source>src/uipath_claude_sdk</source>|<source>packages/uipath-claude-sdk/src/uipath_claude_sdk</source>|g' packages/uipath-claude-sdk/coverage.xml || true
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@2f77a1ec69fb1d595b06f35ab27e97605bdef703  # v5

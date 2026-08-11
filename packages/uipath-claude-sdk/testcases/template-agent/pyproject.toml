@@ -1,0 +1,13 @@
+[project]
+name = "claude-template-agent"
+version = "0.0.1"
+description = "UiPath Claude Agent SDK Template Agent"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-claude-sdk",
+    "uipath>=2.13.0",
+]
+
+[tool.uv.sources]
+uipath-claude-sdk = { path = "../../", editable = true }

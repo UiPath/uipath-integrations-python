@@ -1,0 +1,15 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "contentParts": [
+        {
+          "mimeType": "text/plain",
+          "data": {
+            "inline": "Two more people are joining. Look the room list up again for the new headcount and tell me whether your suggestion still holds."
+          }
+        }
+      ]
+    }
+  ]
+}

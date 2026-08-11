@@ -1,0 +1,6 @@
+{
+  "ProjectType": "Agent",
+  "Name": "uipath-claude-sdk-template-agent",
+  "Description": "uipath-claude-sdk-template-agent",
+  "MainFile": null
+}

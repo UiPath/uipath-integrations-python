@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "fileName": "tool-call-order.json",
+  "id": "evaluator-tool-call-order",
+  "description": "Verify tool calls occur in expected order",
+  "evaluatorTypeId": "uipath-tool-call-order",
+  "evaluatorConfig": {
+    "strict": false,
+    "name": "Tool Call Order",
+    "defaultEvaluationCriteria": {
+      "toolCallsOrder": [
+        "mcp__weather__get_weather"
+      ]
+    }
+  },
+  "createdAt": "2026-08-08T10:00:00.000Z",
+  "updatedAt": "2026-08-08T10:00:00.000Z"
+}

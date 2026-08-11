@@ -1,0 +1,15 @@
+[project]
+name = "claude-simple-remote-mcp-agent"
+version = "0.0.1"
+description = "UiPath Claude Agent SDK Remote MCP Agent"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-claude-sdk",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]

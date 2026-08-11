@@ -1,0 +1,6 @@
+{
+  "ProjectType": "Agent",
+  "Name": "claude-multi-agent",
+  "Description": "UiPath Claude Agent SDK Multi Agent",
+  "MainFile": null
+}

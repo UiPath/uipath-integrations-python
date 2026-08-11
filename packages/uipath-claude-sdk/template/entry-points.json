@@ -1,0 +1,116 @@
+{
+    "$schema": "https://cloud.uipath.com/draft/2024-12/entry-point",
+    "$id": "entry-points.json",
+    "entryPoints": [
+        {
+            "filePath": "agent",
+            "uniqueId": "4017d52c-22ff-4cca-b381-476e3f42238f",
+            "type": "agent",
+            "input": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "description": "City to report the weather for, e.g. 'London'.",
+                        "title": "City",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "city"
+                ],
+                "title": "WeatherRequest"
+            },
+            "output": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "description": "City the reading refers to.",
+                        "title": "City",
+                        "type": "string"
+                    },
+                    "temperature_celsius": {
+                        "description": "Temperature returned by the tool.",
+                        "title": "Temperature Celsius",
+                        "type": "number"
+                    },
+                    "summary": {
+                        "description": "One sentence description of the weather.",
+                        "title": "Summary",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "city",
+                    "temperature_celsius",
+                    "summary"
+                ],
+                "title": "WeatherReport"
+            },
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "__start__",
+                        "name": "__start__",
+                        "type": "__start__",
+                        "subgraph": null,
+                        "metadata": null
+                    },
+                    {
+                        "id": "agent",
+                        "name": "agent",
+                        "type": "model",
+                        "subgraph": null,
+                        "metadata": {
+                            "model_name": "claude-sonnet-4-5"
+                        }
+                    },
+                    {
+                        "id": "agent_tools",
+                        "name": "tools",
+                        "type": "tool",
+                        "subgraph": null,
+                        "metadata": {
+                            "tool_names": [
+                                "weather"
+                            ],
+                            "tool_count": 1,
+                            "mcp_servers": [
+                                "weather"
+                            ],
+                            "builtin_tools": []
+                        }
+                    },
+                    {
+                        "id": "__end__",
+                        "name": "__end__",
+                        "type": "__end__",
+                        "subgraph": null,
+                        "metadata": null
+                    }
+                ],
+                "edges": [
+                    {
+                        "source": "__start__",
+                        "target": "agent",
+                        "label": "input"
+                    },
+                    {
+                        "source": "agent",
+                        "target": "agent_tools",
+                        "label": null
+                    },
+                    {
+                        "source": "agent_tools",
+                        "target": "agent",
+                        "label": null
+                    },
+                    {
+                        "source": "agent",
+                        "target": "__end__",
+                        "label": "output"
+                    }
+                ]
+            }
+        }
+    ]
+}

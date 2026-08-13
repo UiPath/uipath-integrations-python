@@ -64,6 +64,38 @@ def test_build_headers_includes_optional_and_respects_overrides(
     assert headers["X-UiPath-LlmGateway-ApiFlavor"] == "chat-completions"
 
 
+def test_agenthub_config_defaults_to_coded_playground_at_design_time(
+    chat_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """No explicit agenthub_config + no job key (design-time) -> coded playground marker."""
+    from uipath.platform.common import UiPathConfig
+
+    monkeypatch.delenv("UIPATH_JOB_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    UiPathConfig.reset()
+
+    client = UiPathChatOpenAI(token="t", org_id="org", tenant_id="tn")
+    assert (
+        client._build_headers()["X-UiPath-AgentHub-Config"] == "codedagentsplayground"
+    )
+    UiPathConfig.reset()
+
+
+def test_agenthub_config_omitted_when_deployed(
+    chat_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Deployed run (job key, not a studio project, not a debug session) -> no config header."""
+    from uipath.platform.common import UiPathConfig
+
+    monkeypatch.setenv("UIPATH_JOB_KEY", "deployed-job")
+    monkeypatch.chdir(tmp_path)
+    UiPathConfig.reset()
+
+    client = UiPathChatOpenAI(token="t", org_id="org", tenant_id="tn")
+    assert "X-UiPath-AgentHub-Config" not in client._build_headers()
+    UiPathConfig.reset()
+
+
 def test_missing_uipath_url_raises_value_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1,6 +1,6 @@
 [project]
 name = "uipath-openai-agents"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python SDK that enables developers to build and deploy OpenAI agents to the UiPath Cloud Platform"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,6 +10,7 @@ dependencies = [
     "openai-agents>=0.6.5",
     "openinference-instrumentation-openai-agents>=1.4.0",
     "uipath>=2.13.0, <2.14.0",
+    "uipath-platform>=0.2.18, <0.3.0",
     "uipath-runtime>=0.12.1, <0.13.0",
 ]
 classifiers = [

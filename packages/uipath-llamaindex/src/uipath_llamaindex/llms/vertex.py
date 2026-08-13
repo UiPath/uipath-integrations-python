@@ -6,6 +6,8 @@ import httpx
 from llama_index.core.callbacks import CallbackManager
 from llama_index.core.constants import DEFAULT_NUM_OUTPUTS, DEFAULT_TEMPERATURE
 from uipath._utils._ssl_context import get_httpx_client_kwargs
+from uipath.platform.common import resolve_coded_agenthub_config
+from uipath.platform.constants import HEADER_AGENTHUB_CONFIG
 from uipath.utils import EndpointManager
 
 from .supported_models import GeminiModel
@@ -67,6 +69,9 @@ def _rewrite_request_for_gateway(
         headers = dict(request.headers)
         if is_streaming:
             headers["X-UiPath-Streaming-Enabled"] = "true"
+        # Design-time runs meter as CodedAgents.Playground; deployed -> AgentHub.LLM.
+        if agenthub_config := resolve_coded_agenthub_config():
+            headers[HEADER_AGENTHUB_CONFIG] = agenthub_config
         # Update host header to match the gateway URL
         gateway_url_parsed = httpx.URL(gateway_url)
         headers["host"] = gateway_url_parsed.host

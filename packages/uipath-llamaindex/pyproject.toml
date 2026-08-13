@@ -1,6 +1,6 @@
 [project]
 name = "uipath-llamaindex"
-version = "0.6.0"
+version = "0.6.1"
 description = "Python SDK that enables developers to build and deploy LlamaIndex agents to the UiPath Cloud Platform"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -12,6 +12,7 @@ dependencies = [
     "llama-index-llms-azure-openai>=0.4.2",
     "openinference-instrumentation-llama-index>=4.3.9",
     "uipath>=2.13.0, <2.14.0",
+    "uipath-platform>=0.2.18, <0.3.0",
     "uipath-runtime>=0.12.1, <0.13.0",
 ]
 classifiers = [

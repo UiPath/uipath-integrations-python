@@ -125,6 +125,44 @@ def test_client_build_headers_and_base_url(monkeypatch):
     assert client.model_name == client._model_name
 
 
+def test_agenthub_config_defaults_to_coded_playground_at_design_time(
+    monkeypatch, tmp_path
+):
+    """No explicit agenthub_config + no job key (design-time) -> coded playground marker."""
+    from uipath.platform.common import UiPathConfig
+
+    from uipath_pydantic_ai.chat.openai import UiPathChatOpenAI
+
+    monkeypatch.setenv("UIPATH_URL", "https://cloud.uipath.com/org/tenant/")
+    monkeypatch.delenv("UIPATH_JOB_KEY", raising=False)
+    monkeypatch.delenv("UIPATH_PROJECT_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    UiPathConfig.reset()
+
+    client = UiPathChatOpenAI(token="t", org_id="org", tenant_id="tn")
+    assert (
+        client._build_headers()["X-UiPath-AgentHub-Config"] == "codedagentsplayground"
+    )
+    UiPathConfig.reset()
+
+
+def test_agenthub_config_omitted_when_deployed(monkeypatch, tmp_path):
+    """Deployed run (job key, not a studio project, not a debug session) -> no config header."""
+    from uipath.platform.common import UiPathConfig
+
+    from uipath_pydantic_ai.chat.openai import UiPathChatOpenAI
+
+    monkeypatch.setenv("UIPATH_URL", "https://cloud.uipath.com/org/tenant/")
+    monkeypatch.setenv("UIPATH_JOB_KEY", "deployed-job")
+    monkeypatch.delenv("UIPATH_PROJECT_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    UiPathConfig.reset()
+
+    client = UiPathChatOpenAI(token="t", org_id="org", tenant_id="tn")
+    assert "X-UiPath-AgentHub-Config" not in client._build_headers()
+    UiPathConfig.reset()
+
+
 def test_client_requires_uipath_url(monkeypatch):
     """Building the base URL without UIPATH_URL set raises ValueError."""
     from uipath_pydantic_ai.chat.openai import UiPathChatOpenAI

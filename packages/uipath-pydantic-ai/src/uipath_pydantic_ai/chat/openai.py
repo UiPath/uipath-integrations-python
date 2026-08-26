@@ -138,14 +138,9 @@ class UiPathChatOpenAI:
         self._model_name = model_name
         self._api_version = api_version
         self._vendor = "openai"
-        # Default to the coded-agent design-time/deployed marker when the caller
-        # did not set one, so design-time runs meter as CodedAgents.Playground and
-        # deployed runs fall back to AgentHub.LLM.
-        self._agenthub_config = (
-            agenthub_config
-            if agenthub_config is not None
-            else resolve_coded_agenthub_config()
-        )
+        # Absent an explicit config, default to the coded-agent playground marker.
+        coded_default = resolve_coded_agenthub_config()
+        self._agenthub_config = agenthub_config or coded_default
         self._byo_connection_id = byo_connection_id
         self._api_flavor = api_flavor
         self._extra_headers = extra_headers or {}

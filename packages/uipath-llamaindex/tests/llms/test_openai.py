@@ -69,3 +69,35 @@ def test_init_builds_gateway_endpoint_from_enum_model(monkeypatch):
     assert llm.azure_endpoint.startswith("https://cloud.uipath.com/org/tenant/")
     assert "openai" in llm.azure_endpoint
     assert not llm.azure_endpoint.endswith("/completions")
+
+
+def test_default_headers_include_agenthub_config_at_design_time(monkeypatch, tmp_path):
+    from uipath.platform.common import UiPathConfig
+
+    monkeypatch.setenv("UIPATH_URL", "https://cloud.uipath.com/org/tenant/")
+    monkeypatch.setenv("UIPATH_ACCESS_TOKEN", "token")
+    monkeypatch.delenv("UIPATH_JOB_KEY", raising=False)
+    monkeypatch.delenv("UIPATH_PROJECT_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    UiPathConfig.reset()
+
+    llm = UiPathOpenAI(model=OpenAIModel.GPT_4O_2024_08_06)
+    assert (
+        llm.default_headers.get("x-uipath-agenthub-config") == "codedagentsplayground"
+    )
+    UiPathConfig.reset()
+
+
+def test_default_headers_omit_agenthub_config_when_deployed(monkeypatch, tmp_path):
+    from uipath.platform.common import UiPathConfig
+
+    monkeypatch.setenv("UIPATH_URL", "https://cloud.uipath.com/org/tenant/")
+    monkeypatch.setenv("UIPATH_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("UIPATH_JOB_KEY", "deployed-job")
+    monkeypatch.delenv("UIPATH_PROJECT_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    UiPathConfig.reset()
+
+    llm = UiPathOpenAI(model=OpenAIModel.GPT_4O_2024_08_06)
+    assert "x-uipath-agenthub-config" not in (llm.default_headers or {})
+    UiPathConfig.reset()

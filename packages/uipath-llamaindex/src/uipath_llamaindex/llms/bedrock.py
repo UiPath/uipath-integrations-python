@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Any, Optional, Sequence
 
+from uipath.platform.common import resolve_coded_agenthub_config
+from uipath.platform.constants import HEADER_AGENTHUB_CONFIG
 from uipath.utils import EndpointManager
 
 from .supported_models import BedrockModel
@@ -129,6 +131,10 @@ class AwsBedrockCompletionsPassthroughClient:
             "X-UiPath-LlmGateway-ApiFlavor": self.api_flavor,
             "X-UiPath-Streaming-Enabled": streaming,
         }
+
+        # Design-time runs meter as CodedAgents.Playground; deployed -> AgentHub.LLM.
+        if agenthub_config := resolve_coded_agenthub_config():
+            headers[HEADER_AGENTHUB_CONFIG] = agenthub_config
 
         job_key = os.getenv("UIPATH_JOB_KEY")
         process_key = os.getenv("UIPATH_PROCESS_KEY")

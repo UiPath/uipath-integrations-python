@@ -6,6 +6,8 @@ from llama_index.core.base.llms.types import ChatResponse
 from llama_index.core.tools import ToolSelection
 from llama_index.llms.azure_openai import AzureOpenAI  # type: ignore
 from uipath._utils._ssl_context import get_httpx_client_kwargs
+from uipath.platform.common import resolve_coded_agenthub_config
+from uipath.platform.constants import HEADER_AGENTHUB_CONFIG
 from uipath.utils import EndpointManager
 
 from .supported_models import OpenAIModel
@@ -57,6 +59,10 @@ class UiPathOpenAI(AzureOpenAI):
             "X-UiPath-LlmGateway-RequestingProduct": "uipath-python-sdk",
             "X-UiPath-LlmGateway-RequestingFeature": "llama-index-agent",
         }
+        # Design-time runs (local / Studio Web / debug) meter as CodedAgents.Playground;
+        # deployed runs send no header (-> AgentHub.LLM).
+        if agenthub_config := resolve_coded_agenthub_config():
+            default_headers_dict[HEADER_AGENTHUB_CONFIG] = agenthub_config
         model_value = model.value if isinstance(model, OpenAIModel) else model
 
         base_url = os.environ.get("UIPATH_URL", "EMPTY").rstrip("/")

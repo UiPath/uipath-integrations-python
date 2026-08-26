@@ -6,6 +6,7 @@ from typing import Optional
 import httpx
 from openai import AsyncOpenAI, OpenAI
 from uipath._utils._ssl_context import get_httpx_client_kwargs
+from uipath.platform.common import resolve_coded_agenthub_config
 from uipath.utils import EndpointManager
 
 from .supported_models import OpenAIModels
@@ -145,7 +146,8 @@ class UiPathChatOpenAI:
         self._model_name = model_name
         self._api_version = api_version
         self._vendor = "openai"
-        self._agenthub_config = agenthub_config
+        # Design-time runs default to the coded-agent marker (deployed -> AgentHub.LLM).
+        self._agenthub_config = agenthub_config or resolve_coded_agenthub_config()
         self._byo_connection_id = byo_connection_id
         self._api_flavor = api_flavor
         self._extra_headers = extra_headers or {}

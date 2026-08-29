@@ -1,0 +1,30 @@
+{
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-4",
+    "temperature": 0.1,
+    "max_tokens": 2000
+  },
+  "workflow": {
+    "timeout": 300.0
+  },
+  "web_search": {
+    "enabled": true,
+    "max_results": 5,
+    "tavily_api_key": "${TAVILY_API_KEY}"
+  },
+  "uipath": {
+    "enabled": true,
+    "orchestrator_url": "${UIPATH_ORCHESTRATOR_URL}",
+    "tenant_name": "${UIPATH_TENANT_NAME}",
+    "client_id": "${UIPATH_CLIENT_ID}",
+    "client_secret": "${UIPATH_CLIENT_SECRET}",
+    "indexes": {
+      "company_policy": "company-policies-index",
+      "technical_docs": "technical-documentation-index",
+      "knowledge_base": "knowledge-base-index",
+      "compliance": "compliance-guidelines-index",
+      "best_practices": "best-practices-index"
+    }
+  }
+}

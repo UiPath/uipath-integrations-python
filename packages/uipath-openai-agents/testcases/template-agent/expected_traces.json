@@ -1,0 +1,18 @@
+{
+  "description": "Template agent trace assertions - check key spans exist",
+  "required_spans": [
+    {
+      "name": "Agent workflow",
+      "attributes": {
+        "openinference.span.kind": "AGENT"
+      }
+    },
+    {
+      "name": "response",
+      "attributes": {
+        "openinference.span.kind": "LLM",
+        "llm.system": "openai"
+      }
+    }
+  ]
+}

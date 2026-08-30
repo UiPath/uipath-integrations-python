@@ -1,0 +1,5 @@
+{
+  "query": "What is the company policy on travel spending? What is the price of GPUs in 2025? What is 5+6+7+8+(6*10)?",
+  "add_data_to_index": false,
+  "include_hitl": false
+}

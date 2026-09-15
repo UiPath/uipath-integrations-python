@@ -54,7 +54,6 @@ def agent_framework_new_middleware(name: str) -> MiddlewareResult:
 
     try:
         with console.spinner(f"Creating new agent {name} in current directory ..."):
-            generate_pyproject(directory, name)
             generate_script(directory)
             console.success("Created 'main.py' file.")
             console.success("Created 'agent_framework.json' file.")

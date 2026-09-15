@@ -47,7 +47,6 @@ def llamaindex_new_middleware(name: str) -> MiddlewareResult:
 
     try:
         with console.spinner(f"Creating new agent {name} in current directory ..."):
-            generate_pyproject(directory, name)
             generate_script(directory)
             console.success("Created 'main.py' file.")
             console.success("Created 'llama_index.json' file.")

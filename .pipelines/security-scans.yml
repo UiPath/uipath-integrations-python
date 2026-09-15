@@ -36,7 +36,7 @@ stages:
               OS: linux
               azureSubscription: $(azureInternalProductionEaConnectionName)
               FOSSAFlags: '--project "UiPath Integrations Python SDK" --branch "$(Build.SourceBranch)" --revision "$(Build.SourceVersion)-$(Build.BuildId)"'
-              FOSSATestFlags: '--project "UiPath LLamaIndex Python SDK" --revision "$(Build.SourceVersion)-$(Build.BuildId)"'
+              FOSSATestFlags: '--project "UiPath Integrations Python SDK" --revision "$(Build.SourceVersion)-$(Build.BuildId)"'
               ${{ if contains(variables['Build.SourceBranch'], 'main') }}:
                 publishSecurityReports: true
 

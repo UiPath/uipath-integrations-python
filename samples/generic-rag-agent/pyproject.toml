@@ -1,0 +1,13 @@
+[project]
+name = "generic-rag-agent"
+version = "0.0.30"
+description = "A generic RAG agent that combines multiple knowledge bases with web search capabilities and MCP tool support"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+dependencies = [
+    "uipath-llamaindex>=0.0.36",
+    "uipath>=2.1.71",
+    "tavily-python>=0.3.0",
+    "llama-index-tools-mcp>=0.2.6"
+]

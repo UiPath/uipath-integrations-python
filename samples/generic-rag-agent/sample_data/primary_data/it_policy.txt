@@ -1,0 +1,37 @@
+IT and Security Policy
+
+Software Usage:
+- Only approved software may be installed on company devices
+- ChatGPT Enterprise is approved for internal use
+- Do not share confidential data with public AI services
+- All software licenses must be tracked in IT inventory
+
+AI Tools Policy:
+- AI coding assistants (GitHub Copilot, Cursor) are approved
+- AI tools must not receive proprietary code or customer data
+- Review AI-generated code before committing
+- Report any AI tools you want to use to IT for approval
+
+Password Requirements:
+- Minimum 12 characters
+- Must include uppercase, lowercase, numbers, and symbols
+- Change passwords every 90 days
+- No password reuse across systems
+
+Device Management:
+- All devices must have encryption enabled
+- Auto-lock after 5 minutes of inactivity
+- Install security updates within 7 days of release
+- Report lost or stolen devices immediately
+
+Data Classification:
+- Public: Can be shared freely
+- Internal: Company employees only
+- Confidential: Need-to-know basis
+- Restricted: Executive approval required
+
+Incident Response:
+- Report security incidents within 1 hour
+- Contact IT Security team immediately
+- Do not attempt to resolve security breaches yourself
+- Preserve evidence for investigation

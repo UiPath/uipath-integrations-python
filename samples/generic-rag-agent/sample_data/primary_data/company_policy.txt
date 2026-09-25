@@ -1,0 +1,32 @@
+Company General Policy
+
+Working Hours:
+- Standard working hours: 9 AM to 5 PM
+- Flexible hours available with manager approval
+- Core hours (must be present): 10 AM to 3 PM
+
+Remote Work:
+- Employees may work remotely up to 3 days per week
+- Must maintain availability during core hours
+- Prior approval required from direct manager
+
+Equipment and Technology:
+- Company provides laptop and necessary peripherals
+- Annual budget for home office equipment: $500
+- Software purchases must be approved by IT department
+
+Communication:
+- Primary communication channel: Company Slack
+- Email for formal communications
+- Video calls preferred for team meetings
+
+Data Security:
+- All company data must be stored on approved cloud storage
+- Use VPN when accessing company resources remotely
+- Two-factor authentication required for all accounts
+- Report security incidents immediately to IT
+
+Expenses:
+- Submit expense reports within 30 days
+- Receipts required for all expenses over $25
+- Pre-approval needed for expenses over $500

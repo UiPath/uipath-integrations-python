@@ -9,7 +9,7 @@ dependencies = [
     "openai>=1.0.0",
     "openai-agents>=0.6.5",
     "openinference-instrumentation-openai-agents>=1.4.0",
-    "uipath>=2.14.40, <2.15.0",
+    "uipath>=2.14.41, <2.15.0",
     "uipath-platform>=0.2.19, <0.3.0",
     "uipath-runtime>=0.13.5, <0.14.0",
 ]

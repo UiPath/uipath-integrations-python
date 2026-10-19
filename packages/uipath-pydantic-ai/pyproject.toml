@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pydantic-ai>=1.63.0, <2.0.0",
     "openinference-instrumentation-pydantic-ai>=0.1.12",
-    "uipath>=2.14.40, <2.15.0",
+    "uipath>=2.14.41, <2.15.0",
     "uipath-platform>=0.2.19, <0.3.0",
     "uipath-runtime>=0.13.5, <0.14.0",
 ]

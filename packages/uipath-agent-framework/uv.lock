@@ -2482,7 +2482,7 @@ wheels = [
 
 [[package]]
 name = "uipath"
-version = "2.14.40"
+version = "2.14.41"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "applicationinsights" },
@@ -2507,9 +2507,9 @@ dependencies = [
     { name = "uipath-platform" },
     { name = "uipath-runtime" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/d5/6d2351bfbba2249f26f99c45fae71f2385116ead0d4a62e993f9855efc9d/uipath-2.14.40.tar.gz", hash = "sha256:7c553a24298024b0f2ff55e26c79a05686be1fbd986f9bc2b8898af2fdcc9120", size = 4598398, upload-time = "2026-10-15T14:51:48.697Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/b3/a1eb57b26c1c36b4142470dc35c7daba55e5311eb243b1dc98915ea217d1/uipath-2.14.41.tar.gz", hash = "sha256:4a03cfd36517388b70b34f74a9fd4f1276aef07458abc902d1f063d312ddf26a", size = 4598519, upload-time = "2026-10-19T15:32:19.85Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/4f/07f1b71bdd2d09b1ac3aa7944e3c6587f78df2dfa67efda7a5d45ae04d5c/uipath-2.14.40-py3-none-any.whl", hash = "sha256:0c8361e381f1bdba3a92d502cc86f3a2a12e964d303d45a1f654f4216e01a5c1", size = 455968, upload-time = "2026-10-15T14:51:46.925Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/47/ff05433a790bfc8138b52af0c356187e592d700ebb7134d3bc9dbb161417/uipath-2.14.41-py3-none-any.whl", hash = "sha256:d15592f1551b7cd3f912f59d4a785809e8965165280f961774a8045f1e87b7b9", size = 455996, upload-time = "2026-10-19T15:32:17.234Z" },
 ]
 
 [[package]]
@@ -2550,7 +2550,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.43.0" },
     { name = "openinference-instrumentation-agent-framework", specifier = ">=0.1.0" },
-    { name = "uipath", specifier = ">=2.14.40,<2.15.0" },
+    { name = "uipath", specifier = ">=2.14.41,<2.15.0" },
     { name = "uipath-runtime", specifier = ">=0.13.5,<0.14.0" },
 ]
 provides-extras = ["anthropic"]

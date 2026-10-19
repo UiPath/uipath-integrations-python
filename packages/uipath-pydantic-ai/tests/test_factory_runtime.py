@@ -112,9 +112,17 @@ async def test_dispose_clears_caches_and_loaders(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_factory_storage_and_settings_are_none(tmp_path, monkeypatch):
-    """The factory advertises no shared storage or settings."""
+async def test_factory_storage_is_none(tmp_path, monkeypatch):
+    """The factory advertises no shared storage."""
     monkeypatch.chdir(tmp_path)
     factory = _factory()
     assert await factory.get_storage() is None
-    assert await factory.get_settings() is None
+
+
+@pytest.mark.asyncio
+async def test_factory_settings_report_the_framework(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    settings = await _factory().get_settings()
+    assert settings is not None
+    assert settings.agent_type == "uipath_coded"
+    assert settings.agent_framework == "pydantic-ai"

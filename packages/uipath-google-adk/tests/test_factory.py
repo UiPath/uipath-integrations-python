@@ -130,3 +130,13 @@ class TestDispose:
         loader.cleanup.assert_awaited_once()
         assert factory._agent_cache == {}
         assert factory._agent_loaders == {}
+
+
+class TestSettings:
+    @pytest.mark.asyncio
+    async def test_reports_the_framework(self, tmp_path):
+        factory = UiPathGoogleADKRuntimeFactory(_make_context(tmp_path))
+        settings = await factory.get_settings()
+        assert settings is not None
+        assert settings.agent_type == "uipath_coded"
+        assert settings.agent_framework == "google-adk"

@@ -226,7 +226,10 @@ class UiPathLlamaIndexRuntimeFactory:
         Returns:
             Factory settings
         """
-        return None
+        return UiPathRuntimeFactorySettings(
+            agent_type="uipath_coded",
+            agent_framework="llamaindex",
+        )
 
     async def _create_runtime_instance(
         self,

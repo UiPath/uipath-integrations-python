@@ -194,7 +194,10 @@ class UiPathOpenAIAgentRuntimeFactory:
         Returns:
             Factory settings
         """
-        return None
+        return UiPathRuntimeFactorySettings(
+            agent_type="uipath_coded",
+            agent_framework="openai-agents",
+        )
 
     async def _create_runtime_instance(
         self,

@@ -210,7 +210,7 @@ class UiPathPydanticAIRuntimeFactory:
         """
         return UiPathRuntimeFactorySettings(
             agent_type="uipath_coded",
-            agent_framework="pydantic-ai",
+            agent_framework="pydantic_ai",
         )
 
     async def _create_runtime_instance(

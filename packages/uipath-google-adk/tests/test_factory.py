@@ -139,4 +139,4 @@ class TestSettings:
         settings = await factory.get_settings()
         assert settings is not None
         assert settings.agent_type == "uipath_coded"
-        assert settings.agent_framework == "google-adk"
+        assert settings.agent_framework == "google_adk"

@@ -204,7 +204,7 @@ class UiPathGoogleADKRuntimeFactory:
         """
         return UiPathRuntimeFactorySettings(
             agent_type="uipath_coded",
-            agent_framework="google-adk",
+            agent_framework="google_adk",
         )
 
     async def _create_runtime_instance(

@@ -125,4 +125,4 @@ async def test_factory_settings_report_the_framework(tmp_path, monkeypatch):
     settings = await _factory().get_settings()
     assert settings is not None
     assert settings.agent_type == "uipath_coded"
-    assert settings.agent_framework == "pydantic-ai"
+    assert settings.agent_framework == "pydantic_ai"

@@ -10,4 +10,4 @@ async def test_settings_report_the_framework():
     settings = await factory.get_settings()
     assert settings is not None
     assert settings.agent_type == "uipath_coded"
-    assert settings.agent_framework == "agent-framework"
+    assert settings.agent_framework == "agent_framework"

@@ -2,11 +2,17 @@
 
 import os
 import shutil
+import tomllib
+from importlib.metadata import version
 
 import click
 import pytest
+from packaging.requirements import Requirement
 
-from uipath_pydantic_ai._cli.cli_new import pydantic_ai_new_middleware
+from uipath_pydantic_ai._cli.cli_new import (
+    generate_pyproject,
+    pydantic_ai_new_middleware,
+)
 
 
 def test_new_middleware_scaffolds_project(tmp_path, monkeypatch):
@@ -37,3 +43,14 @@ def test_new_middleware_reports_failure(tmp_path, monkeypatch):
     with click.Context(click.Command("new")):
         with pytest.raises((SystemExit, click.exceptions.Exit)):
             pydantic_ai_new_middleware("broken")
+
+
+def test_scaffold_accepts_the_current_release(tmp_path):
+    generate_pyproject(str(tmp_path), "my-agent")
+    project = tomllib.loads((tmp_path / "pyproject.toml").read_text())["project"]
+    requirement = next(
+        Requirement(dep)
+        for dep in project["dependencies"]
+        if Requirement(dep).name == "uipath-pydantic-ai"
+    )
+    assert requirement.specifier.contains(version("uipath-pydantic-ai"))

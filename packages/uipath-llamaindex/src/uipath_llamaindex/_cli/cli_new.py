@@ -31,7 +31,7 @@ version = "0.0.1"
 description = "{project_name}"
 authors = [{{ name = "John Doe", email = "john.doe@myemail.com" }}]
 dependencies = [
-    "uipath-llamaindex[bedrock,vertex]>=0.5.0, <0.6.0",
+    "uipath-llamaindex[bedrock,vertex]>=0.6.2, <0.7.0",
 ]
 requires-python = ">=3.11"
 """

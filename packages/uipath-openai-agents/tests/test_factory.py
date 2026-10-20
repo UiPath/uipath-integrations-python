@@ -106,3 +106,10 @@ async def test_dispose_clears_caches_and_loaders(
 
     assert factory._agent_cache == {}
     assert factory._agent_loaders == {}
+
+
+async def test_settings_report_the_framework(factory) -> None:
+    settings = await factory.get_settings()
+    assert settings is not None
+    assert settings.agent_type == "uipath_coded"
+    assert settings.agent_framework == "openai_agents"

@@ -1,5 +1,10 @@
 """Tests for _cli/cli_new.py — project scaffolding middleware."""
 
+import tomllib
+from importlib.metadata import version
+
+from packaging.requirements import Requirement
+
 from uipath_google_adk._cli.cli_new import (
     generate_pyproject,
     generate_script,
@@ -13,6 +18,16 @@ class TestGeneratePyproject:
         content = (tmp_path / "pyproject.toml").read_text()
         assert 'name = "my-agent"' in content
         assert "uipath-google-adk" in content
+
+    def test_accepts_the_current_release(self, tmp_path):
+        generate_pyproject(str(tmp_path), "my-agent")
+        project = tomllib.loads((tmp_path / "pyproject.toml").read_text())["project"]
+        requirement = next(
+            Requirement(dep)
+            for dep in project["dependencies"]
+            if Requirement(dep).name == "uipath-google-adk"
+        )
+        assert requirement.specifier.contains(version("uipath-google-adk"))
 
 
 class TestGenerateScript:

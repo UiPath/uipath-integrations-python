@@ -195,7 +195,10 @@ class UiPathAgentFrameworkRuntimeFactory:
 
     async def get_settings(self) -> UiPathRuntimeFactorySettings | None:
         """Get the factory settings."""
-        return None
+        return UiPathRuntimeFactorySettings(
+            agent_type="uipath_coded",
+            agent_framework="agent_framework",
+        )
 
     async def _create_runtime_instance(
         self,

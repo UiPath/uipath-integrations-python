@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "openai-company-agent"
 authors = [{ name = "Eusebiu Jecan", email = "eusebiu.jecan@uipath.com" }]
 dependencies = [
-    "uipath-openai-agents",
+    "uipath-openai-agents>=0.1.2",
     "openai>=1.0.0",
 ]
 

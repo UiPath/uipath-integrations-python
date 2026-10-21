@@ -12,6 +12,7 @@ exclude-newer-span = "P2D"
 
 [options.exclude-newer-package]
 uipath = false
+uipath-llamaindex = false
 uipath-platform = false
 uipath-runtime = false
 uipath-core = false

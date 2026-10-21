@@ -6,8 +6,8 @@ authors = [{ name = "John Doe" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "uipath",
-    "uipath-google-adk",
+    "uipath>=2.14.41",
+    "uipath-google-adk>=0.1.1",
     "google-adk>=1.25.0",
 ]
 

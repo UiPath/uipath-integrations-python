@@ -6,8 +6,8 @@ authors = [{ name = "John Doe" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "uipath",
-    "uipath-agent-framework",
+    "uipath>=2.14.41",
+    "uipath-agent-framework>=0.1.1",
     "agent-framework-core>=1.0.0rc1",
     "agent-framework-orchestrations>=1.0.0b260219",
 ]

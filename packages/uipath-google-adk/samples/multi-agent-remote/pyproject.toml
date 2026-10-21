@@ -5,9 +5,9 @@ description = "Google ADK multi-agent example with RemoteA2aAgent sub-agents via
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "uipath-google-adk",
+    "uipath-google-adk>=0.1.1",
     "google-adk[a2a]>=1.25.0",
-    "uipath>=2.8.18, <2.9.0",
+    "uipath>=2.14.41",
 ]
 
 [dependency-groups]

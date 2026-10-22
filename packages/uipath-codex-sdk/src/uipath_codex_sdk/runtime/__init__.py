@@ -6,6 +6,7 @@ from uipath.runtime import (
     UiPathRuntimeFactoryRegistry,
 )
 
+from .chat_runtime import UiPathCodexChatRuntime
 from .factory import UiPathCodexRuntimeFactory
 from .runtime import UiPathCodexRuntime
 
@@ -25,4 +26,5 @@ __all__ = [
     "register_runtime_factory",
     "UiPathCodexRuntimeFactory",
     "UiPathCodexRuntime",
+    "UiPathCodexChatRuntime",
 ]

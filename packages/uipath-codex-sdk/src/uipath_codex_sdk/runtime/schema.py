@@ -283,8 +283,62 @@ def get_agent_graph(agent: UiPathCodexAgent) -> UiPathRuntimeGraph:
     return UiPathRuntimeGraph(nodes=nodes, edges=edges)
 
 
+def _conversation_message_schema() -> dict[str, Any]:
+    """One UiPath conversation message (camelCase wire form), loosely typed.
+
+    Text parts carry ``data.inline``; a file uploaded in the chat carries
+    ``data.uri`` (``urn:uipath:cas:file:orchestrator:<id>``) and ``name``.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "messageId": {"type": "string"},
+            "role": {"type": "string"},
+            "contentParts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "mimeType": {"type": "string"},
+                        "name": {"type": "string"},
+                        "data": {
+                            "type": "object",
+                            "properties": {
+                                "inline": {},
+                                "uri": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+            },
+            "toolCalls": {"type": "array", "items": {"type": "object"}},
+        },
+    }
+
+
+def default_messages_schema() -> dict[str, Any]:
+    """Input and output schema of a conversational agent.
+
+    Nothing is required, as in uipath-claude-sdk: the chat host feeds the
+    messages rather than a form, and the reply goes over the chat bridge
+    rather than into the run's output.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "messages": {
+                "type": "array",
+                "items": _conversation_message_schema(),
+                "title": "Messages",
+                "description": "UiPath conversation messages",
+            }
+        },
+        "required": [],
+    }
+
+
 def get_entrypoint_schema(
-    agent: UiPathCodexAgent, entrypoint: str
+    agent: UiPathCodexAgent, entrypoint: str, *, conversational: bool = False
 ) -> UiPathRuntimeSchema:
     """Build the UiPath runtime schema for a Codex agent entrypoint.
 
@@ -301,19 +355,23 @@ def get_entrypoint_schema(
     uses; the default Codex model (``gpt-5.6-terra``) was checked to answer
     there, structured output included. An agent on a Responses-only model
     should set an explicit model on its mocking strategies and judges.
+
+    A ``conversational`` agent's input and output are both
+    :func:`default_messages_schema`.
     """
     return UiPathRuntimeSchema(
         filePath=entrypoint,
         uniqueId=str(uuid4()),
         type="agent",
-        input=_input_schema(agent),
-        output=_output_schema(agent),
+        input=default_messages_schema() if conversational else _input_schema(agent),
+        output=default_messages_schema() if conversational else _output_schema(agent),
         graph=get_agent_graph(agent),
         metadata={"settings": {"model": agent.model}},
     )
 
 
 __all__ = [
+    "default_messages_schema",
     "get_agent_graph",
     "get_entrypoint_schema",
     "prompt_fields",

@@ -194,8 +194,8 @@ agent = UiPathCodexAgent(
 * State lives in `__uipath/state.db`, including the Codex conversation.
   An agent with durable tools runs on a run-scoped `CODEX_HOME`
   (`__uipath/codex_home`, so `~/.codex` is not read) and with codex's ChatGPT
-  backend calls turned off (`hermetic`). Agents without durable tools are not
-  affected.
+  backend calls turned off (`hermetic`), as a conversational agent does.
+  Other agents without durable tools are not affected.
 * The child job's `ParentSpanId` is the tool span. The job attachments in the
   arguments' attachment fields are linked to the child job (see "Job
   attachments"); BTS correlation (`parent_operation_id`) is not passed.
@@ -828,8 +828,90 @@ agent = UiPathCodexAgent(
 * Batch Transform on an attachment: see "Batch Transform on a job
   attachment" under "Context grounding tools".
 
-Not supported yet: conversational attachments, attachments in Integration Service file
-uploads, and TIFF files in Analyze Files.
+* Files uploaded in a chat: see "Conversational agents" below.
+
+Not supported yet: attachments in Integration Service file uploads, and TIFF
+files in Analyze Files.
+
+## Conversational agents
+
+A Codex agent becomes a chat agent with one flag in `uipath.json`; the
+agent code does not change:
+
+```json
+{ "runtimeOptions": { "isConversational": true } }
+```
+
+`uipath pack` copies the flag into the package, which makes Orchestrator
+and the Agents / Autopilot chat treat the process as a conversational agent.
+At runtime a chat host's conversation id switches it on too.
+
+```python
+agent = UiPathCodexAgent(
+    model="gpt-5.6-terra",
+    base_instructions="You help colleagues pick a meeting room. ...",
+    tools=[FindRoomsTool(), uipath_analyze_files_tool()],
+)
+```
+
+* Input and output: the UiPath conversation message format
+  (`{"messages": [{"role": "user", "contentParts": [...]}]}`) on both sides.
+  `base_instructions` is the system prompt. `prompt`, `input_schema` and
+  `output_schema` do not apply and are refused (`CONFIG_INVALID`).
+* One exchange per run: the runtime takes the newest user message, runs one
+  Codex turn with it and ends **suspended with no trigger**. The job stays
+  alive for the next message, and the chat host closes the exchange
+  (`endExchange`).
+* Memory: the conversation is one Codex thread. Every exchange resumes it,
+  so only the newest message is sent and the earlier ones come from the
+  thread; it does not matter whether the host replays the history. The
+  thread's rollout is saved in `state.db` after every exchange and restored
+  before the next one, so a new job (another robot) continues the same
+  conversation. The state is keyed by the conversation id (the runtime id
+  of a chat job). Codex's own auto-compaction keeps a long thread's context
+  bounded; a rollout over 8 MiB compressed logs a warning.
+* Streaming: assistant text streams as it arrives (one `chunk` per text
+  delta, `text/markdown`). Commentary (Codex's progress notes) is shown
+  too. MCP tool calls (UiPath tools and your own servers) and shell commands
+  (`shell`) are tool cards on the message that called them:
+  `startToolCall`, then `endToolCall` with the result. Reasoning, file edits
+  and web searches stay state events (debugger, traces).
+* Durable tools and escalations work inside an exchange: the call's card
+  stays open, the job suspends on the call's trigger and the exchange stays
+  open (no `endExchange`). The resumed job ends the card with the result,
+  streams the rest of the reply and then ends the exchange. A user message
+  that arrives while a call is still pending is not processed: the exchange
+  suspends again on the same call(s), with their triggers.
+* Files uploaded in the chat (`urn:uipath:cas:file:orchestrator:<id>`)
+  become job attachments the run knows, listed in the prompt as for any
+  input attachment, so `uipath_analyze_files_tool()` and the other
+  attachment tools can read them in this exchange and the later ones. A
+  message with only a file is fine.
+* Tracing: one `Conversational agent run - <agent name>` span per exchange
+  (as low-code names it), with `isConversational`, `conversationId`,
+  `exchangeId`, `threadId` and the exchange `input`. An exchange that
+  suspends on a durable call keeps its span open until the resumed job
+  finishes the exchange.
+
+Locally:
+
+```bash
+uv run uipath dev                                          # chat in the browser
+uv run uipath run agent --file input.json                  # first message
+uv run uipath run agent --file next_message.json --resume  # the next ones
+```
+
+`uipath run` prints the state events (tool calls) but not the reply, which
+is a chat event; to see the envelopes a chat host gets, run as a deployed
+chat job does: set `UIPATH_JOB_KEY` to any GUID,
+`CAS_WEBSOCKET_DISABLED=true`, and the conversation ids in `uipath.json`
+(`"fpsProperties": {"conversationalService.conversationId": "...",
+"conversationalService.exchangeId": "..."}`); each envelope is then logged
+to `__uipath/execution.log`. See [`samples/chat-agent`](samples/chat-agent).
+
+Not supported yet: in-chat tool confirmation (`requireConfirmation`) and
+client-side tools; images sent to the model as images (a chat file is an
+attachment for tools).
 
 ## Tracing
 
@@ -838,7 +920,9 @@ uses the same span types as low-code agents:
 
 * `Agent run - <entrypoint>` (`agentRun`): prompt, input, schemas, output,
   and `status` (successful or faulted). It opens in the first execution and
-  closes in the last one.
+  closes in the last one. A conversational agent has one `Conversational
+  agent run - <agent name>` per chat exchange instead (see "Conversational
+  agents").
   * `LLM call` (`llmCall`): one per model request, with the output text, tool
     calls and token usage. The shim sends the trace context to the LLM
     Gateway, which adds its `Model run` span underneath.
@@ -1055,9 +1139,8 @@ For example:
 
 ## Not supported
 
-* **Conversational agents.** There is no chat runtime yet, so a Codex agent
-  cannot run as a conversational agent (`uipath dev` chat mode, chat in
-  Studio Web or Orchestrator).
+* **Tool confirmation in a chat** (`requireConfirmation`) and client-side
+  tools (see "Conversational agents").
 * **Breakpoints in `uipath debug`.** Codex offers no hook to stop between
   steps, so the runtime logs a warning and the run continues to completion.
 * **Models other than OpenAI** (see [Models](#models)).

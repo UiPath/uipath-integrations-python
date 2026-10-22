@@ -3,7 +3,8 @@
 A job is one ``Agent run`` span with the low-code agent span schema, so a coded
 Codex agent's trace reads like any other agent's, however often it suspends:
 
-* ``Agent run - <entrypoint>`` (``agentRun``)
+* ``Agent run - <entrypoint>`` (``agentRun``); for a conversational agent,
+  one ``Conversational agent run - <agent name>`` per chat exchange
 
   * ``LLM call`` (``llmCall``): one per ``/responses`` call through the gateway
     shim. The shim sends the trace context upstream, and the LLM Gateway adds
@@ -166,24 +167,40 @@ def start_agent_run(
     output_schema: Any,
     resumed: bool,
     attachments: str | None = None,
+    is_conversational: bool = False,
+    extra: dict[str, Any] | None = None,
 ) -> Span:
+    """Open the ``Agent run`` span.
+
+    A conversational exchange is named as low-code names it,
+    ``Conversational agent run - <agent name>``, and carries neither
+    ``userPrompt`` (its ``input`` holds the messages) nor ``resumed``, as
+    low-code's has neither. ``extra`` adds attributes (``conversationId``,
+    ``exchangeId``...).
+    """
+    span_name = (
+        f"Conversational agent run - {agent_name}"
+        if is_conversational
+        else f"Agent run - {name}"
+    )
     return get_tracer().start_span(
-        f"Agent run - {name}",
+        span_name,
         attributes=span_attributes(
             SPAN_AGENT_RUN,
             agentName=agent_name,
             source="runtime",
-            isConversational=False,
+            isConversational=is_conversational,
             runtimeKind="coded",
             framework="codex_sdk",
             model=model,
             systemPrompt=system_prompt or "",
-            userPrompt=user_prompt or "",
+            userPrompt=None if is_conversational else (user_prompt or ""),
             input=input if input is not None else {},
             inputSchema=input_schema,
             outputSchema=output_schema,
-            resumed=resumed,
+            resumed=None if is_conversational else resumed,
             attachments=attachments,
+            **(extra or {}),
         ),
     )
 

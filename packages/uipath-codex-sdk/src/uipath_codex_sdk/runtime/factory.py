@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -28,6 +29,8 @@ from uipath.runtime.errors import UiPathErrorCategory
 from ..agent import UiPathCodexAgent
 from ..attachments import span_attachments
 from ..tools import is_durable_tool
+from .chat_events import chat_attachments, extract_user_message, is_chat_input
+from .chat_runtime import UiPathCodexChatRuntime, chat_parked
 from .config import CodexConfig
 from .errors import UiPathCodexErrorCode, UiPathCodexRuntimeError
 from .loader import CodexAgentLoader
@@ -72,6 +75,9 @@ class UiPathCodexRuntimeFactory:
     Every runtime is wrapped in ``UiPathResumableRuntime`` over a SQLite state
     database, so a durable-tool suspension is persisted as resume triggers and
     restored on the next ``--resume`` (or job resume).
+
+    A conversational agent (``uipath.json`` → ``runtimeOptions.isConversational``,
+    or a chat host's conversation id) runs on :class:`UiPathCodexChatRuntime`.
     """
 
     def __init__(self, context: UiPathRuntimeContext):
@@ -113,27 +119,38 @@ class UiPathCodexRuntimeFactory:
         agent = await self._resolve_agent(entrypoint)
         loader = self._agent_loaders[entrypoint]
         storage = await self._get_storage()
-        delegate = UiPathCodexRuntime(
-            agent=agent,
-            runtime_id=runtime_id,
-            entrypoint=entrypoint,
-            file_path=os.path.abspath(loader.file_path),
-            storage=storage,
-            # Only durable agents run on a run-scoped CODEX_HOME; the others
-            # (immediate tools only, too) keep codex's own resolution (and
-            # nothing of theirs is wiped).
-            codex_home=(
+        conversational = self._is_conversational()
+        options: dict[str, Any] = {
+            "agent": agent,
+            "runtime_id": runtime_id,
+            "entrypoint": entrypoint,
+            "file_path": os.path.abspath(loader.file_path),
+            "storage": storage,
+            # Only durable and conversational agents run on a run-scoped
+            # CODEX_HOME; the others (immediate tools only, too) keep codex's
+            # own resolution (and nothing of theirs is wiped).
+            "codex_home": (
                 self._get_codex_home()
-                if any(is_durable_tool(t) for t in agent.tools or [])
+                if (
+                    conversational or any(is_durable_tool(t) for t in agent.tools or [])
+                )
                 and not agent.codex_home
                 else None
             ),
+        }
+        delegate: UiPathCodexRuntime = (
+            UiPathCodexChatRuntime(exchange_id=self.context.exchange_id, **options)
+            if conversational
+            else UiPathCodexRuntime(**options)
         )
         return UiPathCodexResumableRuntime(
             delegate=delegate,
             storage=storage,
             trigger_manager=CodexResumeTriggerHandler(),
             runtime_id=runtime_id,
+            conversational=conversational,
+            conversation_id=self.context.conversation_id,
+            exchange_id=self.context.exchange_id,
         )
 
     async def dispose(self) -> None:
@@ -145,6 +162,25 @@ class UiPathCodexRuntimeFactory:
             storage, self._storage = self._storage, None
         if storage is not None:
             await storage.dispose()
+
+    def _is_conversational(self) -> bool:
+        """Whether the agent runs as a conversational (chat) agent.
+
+        The chat host's conversation id is the live signal; otherwise
+        ``uipath.json`` → ``runtimeOptions.isConversational`` decides (what
+        ``uipath pack`` copies into the package, and what ``uipath dev``
+        runs locally). A missing or unreadable file means no.
+        """
+        if self.context.conversation_id is not None:
+            return True
+        config_path = self.context.config_path or "uipath.json"
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                config = json.load(f)
+        except (OSError, ValueError):
+            return False
+        options = config.get("runtimeOptions") if isinstance(config, dict) else None
+        return isinstance(options, dict) and bool(options.get("isConversational"))
 
     # --- state ------------------------------------------------------------
 
@@ -262,7 +298,38 @@ class UiPathCodexResumableRuntime(UiPathResumableRuntime):
     ``uipath run`` prints and what lands in ``output.json`` (Orchestrator
     resumes from ``resumeTriggers``), so it is replaced by
     ``{call_id: {tool, arguments, job_key, job_state, folder_key}}``.
+
+    A ``conversational`` runtime traces each chat exchange as its own
+    ``Conversational agent run`` span: an exchange that ends (SUSPENDED with
+    no trigger) completes it, and only an exchange parked on durable calls
+    saves it for the execution that resumes the exchange.
     """
+
+    def __init__(
+        self,
+        *args: Any,
+        conversational: bool = False,
+        conversation_id: str | None = None,
+        exchange_id: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.conversational = conversational
+        self.conversation_id = conversation_id
+        self.exchange_id = exchange_id
+
+    async def _restore_resume_input(
+        self, input: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Keep the stored triggers when a chat message is the resume input.
+
+        The base class takes any explicit input as the answer to the stored
+        trigger(s) and deletes them. A user message answers no durable call:
+        the exchange suspends again on the same calls (with their triggers).
+        """
+        if self.conversational and (is_chat_input(input) or isinstance(input, str)):
+            return input
+        return await super()._restore_resume_input(input)
 
     async def execute(
         self,
@@ -310,7 +377,16 @@ class UiPathCodexResumableRuntime(UiPathResumableRuntime):
         if store is not None:
             try:
                 saved = await store.get_trace()
-                if not resumed and saved is not None:
+                # A chat exchange parked on durable calls keeps its span even
+                # when the next run is not a resume (a fresh execution on the
+                # same runtime id). Only a parked exchange: a faulted one may
+                # leave pending calls, but its span has ended.
+                parked = (
+                    self.conversational
+                    and saved is not None
+                    and chat_parked(await store.get_chat())
+                )
+                if not resumed and saved is not None and not parked:
                     await store.set_trace(None)
                     saved = None
             except Exception:
@@ -337,9 +413,15 @@ class UiPathCodexResumableRuntime(UiPathResumableRuntime):
                 self._start_agent_span(input, options),
                 store=store,
                 delegate=delegate,
+                conversational=self.conversational,
             )
         return _AgentRun(
-            root, store=store, delegate=delegate, saved=saved, propagated=propagated
+            root,
+            store=store,
+            delegate=delegate,
+            saved=saved,
+            propagated=propagated,
+            conversational=self.conversational,
         )
 
     def _start_agent_span(self, input: Any, options: Any) -> Span:
@@ -348,6 +430,8 @@ class UiPathCodexResumableRuntime(UiPathResumableRuntime):
         if not isinstance(runtime, UiPathCodexRuntime):  # pragma: no cover
             return trace.get_tracer(__name__).start_span("Agent run")
         agent = runtime.agent
+        if isinstance(runtime, UiPathCodexChatRuntime):
+            return self._start_exchange_span(runtime, input)
         user_prompt: str | None = CONTINUE_PROMPT if resumed else None
         if not resumed:
             try:
@@ -370,6 +454,40 @@ class UiPathCodexResumableRuntime(UiPathResumableRuntime):
                 if resumed
                 else span_attachments(runtime.input_attachments(input or {}), "in")
             ),
+        )
+
+    def _start_exchange_span(self, runtime: UiPathCodexChatRuntime, input: Any) -> Span:
+        """A chat exchange's span, named and shaped as low-code's.
+
+        Its ``input`` is the exchange input (the messages); there is no
+        ``userPrompt``, and no ``resumed``: a span opened here is always a
+        new exchange (every exchange after the first is a job resume in
+        Orchestrator), and the durable resume of a parked exchange reuses its
+        saved span. ``threadId`` is set when the exchange ends.
+        """
+        agent = runtime.agent
+        schema = get_entrypoint_schema(agent, runtime.entrypoint, conversational=True)
+        message = extract_user_message(input)
+        return start_agent_run(
+            runtime.entrypoint,
+            agent_name=agent.name if agent.name != "agent" else runtime.entrypoint,
+            model=agent.model,
+            input=input if isinstance(input, dict) else None,
+            system_prompt=agent.base_instructions,
+            user_prompt=None,
+            input_schema=schema.input,
+            output_schema=schema.output,
+            resumed=False,
+            attachments=(
+                span_attachments(chat_attachments(message), "in")
+                if message is not None
+                else None
+            ),
+            is_conversational=True,
+            extra={
+                "conversationId": self.conversation_id or self.runtime_id,
+                "exchangeId": self.exchange_id,
+            },
         )
 
     async def _handle_suspension(
@@ -451,9 +569,11 @@ class _AgentRun:
         delegate: Any,
         saved: dict[str, Any] | None = None,
         propagated: dict[str, Any] | None = None,
+        conversational: bool = False,
     ) -> None:
         self.root = root
         self.saved = saved
+        self._conversational = conversational
         # Attributes this execution's spans carry (``execution.id``) that the
         # restored root cannot hand down.
         self._propagated = dict(propagated or {})
@@ -484,6 +604,15 @@ class _AgentRun:
         if self._done:
             return
         self._done = True
+        if (
+            result.status == UiPathRuntimeStatus.SUSPENDED
+            and self._conversational
+            and not result.triggers
+        ):
+            # The chat exchange is over (the job waits for the next message).
+            extra = await self._chat_attributes()
+            await self._safely(self._complete("successful", extra=extra))
+            return
         if result.status == UiPathRuntimeStatus.SUSPENDED:
             try:
                 await self._suspend(result.output)
@@ -533,22 +662,42 @@ class _AgentRun:
         except Exception:
             logger.warning("Could not finish the Agent run trace", exc_info=True)
 
+    async def _chat_attributes(self) -> dict[str, Any]:
+        """``threadId`` of a chat exchange: the conversation's Codex thread."""
+        if not self._conversational or self._store is None:
+            return {}
+        try:
+            thread = await self._store.get_thread()
+        except Exception:
+            logger.debug("could not read the Codex thread id", exc_info=True)
+            return {}
+        return {"threadId": thread.thread_id} if thread is not None else {}
+
     async def _suspend(self, output: Any) -> None:
         if self.saved is not None:
             return  # still running; the saved span carries forward unchanged
         # Not ended: the next execution completes it.
         set_attributes(self.root, status="suspended", output=output)
+        for key, value in (await self._chat_attributes()).items():
+            self.root.set_attribute(key, value)
         push_running(self.root)
         record = span_record(self.root)
         if record is not None and self._store is not None:
             await self._store.set_trace(record)
 
     async def _complete(
-        self, status: str, *, output: Any = None, error: str | None = None
+        self,
+        status: str,
+        *,
+        output: Any = None,
+        error: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         if self.saved is None:
             try:
                 set_attributes(self.root, status=status, output=output)
+                for key, value in (extra or {}).items():
+                    self.root.set_attribute(key, value)
                 if error is None:
                     self.root.set_status(Status(StatusCode.OK))
                 else:
@@ -562,6 +711,7 @@ class _AgentRun:
                 self.saved,
                 attributes={
                     **self._propagated,
+                    **(extra or {}),
                     **attribute_values(status=status, output=output),
                 },
                 error=error,

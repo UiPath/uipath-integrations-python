@@ -39,6 +39,7 @@ import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, AsyncGenerator, cast
 
 from opentelemetry import context as context_api
@@ -585,6 +586,10 @@ class _ResumePlan:
 class UiPathCodexRuntime:
     """Executes a single :class:`UiPathCodexAgent` via the Codex SDK.
 
+    The ``_item_*_events`` / ``_notification_events`` / ``_completed_events``
+    / ``_suspend_events`` hooks are what the conversational subclass
+    (:class:`.chat_runtime.UiPathCodexChatRuntime`) overrides.
+
     Args:
         agent: The agent definition.
         runtime_id: UiPath runtime id (the job key when deployed).
@@ -597,6 +602,9 @@ class UiPathCodexRuntime:
             ``<project>/__uipath/codex_home``. Agents without durable tools
             ignore it and keep codex's own ``CODEX_HOME`` resolution.
     """
+
+    #: A conversational (chat) runtime keeps its Codex thread across runs.
+    _conversational: bool = False
 
     def __init__(
         self,
@@ -844,8 +852,9 @@ class UiPathCodexRuntime:
             else:
                 thread = await codex.thread_start(**thread_kwargs)
             thread_id = thread.id
-            if host is not None and tools:
+            if (host is not None and tools) or self._conversational:
                 await self._require_session().set_thread(ThreadRecord(thread.id))
+            if host is not None and tools:
                 host.bind(self._rollout_probe(durable_home, thread.id))
 
             run_kwargs: dict[str, Any] = {}
@@ -871,14 +880,15 @@ class UiPathCodexRuntime:
                         tracker.on_started(item)
                         if not _ItemTracker._is_hosted(item):
                             item_spans.start(item)
+                        for event in self._item_started_events(item):
+                            yield event
                     elif isinstance(payload, ItemCompletedNotification):
                         item = payload.item.model_dump(mode="json")
                         tracker.on_completed(item)
                         if not _ItemTracker._is_hosted(item):
                             item_spans.finish(item)
                         item_dicts.append(item)
-                        event = self._item_to_event(item)
-                        if event is not None:
+                        for event in self._item_completed_events(item):
                             yield event
                     elif isinstance(payload, TurnCompletedNotification):
                         if payload.turn.status == TurnStatus.failed:
@@ -910,6 +920,9 @@ class UiPathCodexRuntime:
                             )
                     elif isinstance(payload, ThreadTokenUsageUpdatedNotification):
                         pass  # token usage → tracing milestone
+                    else:
+                        for event in self._notification_events(payload):
+                            yield event
             except UiPathCodexRuntimeError as e:
                 _raise_fatal(host, e)
                 raise
@@ -979,14 +992,55 @@ class UiPathCodexRuntime:
             self._shim = None
 
         if suspend.killed and thread_id is not None:
-            yield await self._finish_suspend(durable_home, thread_id, tracker, host)
+            async for event in self._suspend_events(
+                durable_home, thread_id, tracker, host
+            ):
+                yield event
             return
+        async for event in self._completed_events(
+            durable_home, thread_id, tools, item_dicts
+        ):
+            yield event
+
+    # --- hooks of the conversational runtime ------------------------------
+
+    def _item_started_events(self, item: dict[str, Any]) -> list[UiPathRuntimeEvent]:
+        """Events for a thread item that started (none: completed items count)."""
+        return []
+
+    def _item_completed_events(self, item: dict[str, Any]) -> list[UiPathRuntimeEvent]:
+        """Events for a completed thread item (see :meth:`_item_to_event`)."""
+        event = self._item_to_event(item)
+        return [event] if event is not None else []
+
+    def _notification_events(self, payload: Any) -> list[UiPathRuntimeEvent]:
+        """Events for any other turn notification (deltas...): none."""
+        return []
+
+    async def _completed_events(
+        self,
+        codex_home: str,
+        thread_id: str | None,
+        tools: dict[str, UiPathDurableTool],
+        items: list[dict[str, Any]],
+    ) -> AsyncGenerator[UiPathRuntimeEvent, None]:
+        """The end of a turn that completed: SUCCESSFUL with the final text."""
         if tools:
             await self._require_session().clear_suspension()
         yield UiPathRuntimeResult(
-            output=self._build_output(self._final_text(item_dicts)),
+            output=self._build_output(self._final_text(items)),
             status=UiPathRuntimeStatus.SUCCESSFUL,
         )
+
+    async def _suspend_events(
+        self,
+        codex_home: str,
+        thread_id: str,
+        tracker: _ItemTracker,
+        host: DurableToolHost | None,
+    ) -> AsyncGenerator[UiPathRuntimeEvent, None]:
+        """The end of a turn stopped for durable calls: SUSPENDED on them."""
+        yield await self._finish_suspend(codex_home, thread_id, tracker, host)
 
     def _mcp_servers(
         self, shim: CodexGatewayShim, host: DurableToolHost | None
@@ -1229,17 +1283,10 @@ class UiPathCodexRuntime:
         session = self._require_session()
         await self._save_attachments()
         await self._save_results()
-        path = find_rollout(codex_home, thread_id)
-        if path is None:
-            raise UiPathCodexRuntimeError(
-                UiPathCodexErrorCode.ROLLOUT_CHECKPOINT_FAILED,
-                "Cannot suspend the Codex run",
-                f"No rollout file for thread {thread_id} under {codex_home}.",
-                UiPathErrorCategory.SYSTEM,
-            )
-        raw = await asyncio.to_thread(path.read_bytes)
+        path, data = await self._read_rollout(
+            codex_home, thread_id, "Cannot suspend the Codex run"
+        )
         is_zst = path.name.endswith(".zst")
-        data = raw if is_zst else cut_torn_tail(raw)
         pending = {
             cid: call
             for cid, call in (await session.get_pending()).items()
@@ -1282,9 +1329,7 @@ class UiPathCodexRuntime:
                     f"The rollout does not hold the pending call(s) {missing}.",
                     UiPathErrorCategory.SYSTEM,
                 )
-        rel = os.path.relpath(path, codex_home)
-        await session.set_rollout(encode_rollout(rel, data))
-        await session.set_thread(ThreadRecord(thread_id, rel))
+        await self._store_rollout(codex_home, thread_id, path, data)
         await session.set_dangling(dangling)
         await session.set_completed({})
         logger.info(
@@ -1293,6 +1338,38 @@ class UiPathCodexRuntime:
             list(pending),
         )
         return self._suspended_result(pending)
+
+    async def _read_rollout(
+        self,
+        codex_home: str,
+        thread_id: str,
+        title: str = "Cannot save the Codex conversation",
+    ) -> tuple[Path, bytes]:
+        """``(path, content)`` of the thread's rollout, a torn tail cut off."""
+        path = find_rollout(codex_home, thread_id)
+        if path is None:
+            raise UiPathCodexRuntimeError(
+                UiPathCodexErrorCode.ROLLOUT_CHECKPOINT_FAILED,
+                title,
+                f"No rollout file for thread {thread_id} under {codex_home}.",
+                UiPathErrorCategory.SYSTEM,
+            )
+        raw = await asyncio.to_thread(path.read_bytes)
+        return path, raw if path.name.endswith(".zst") else cut_torn_tail(raw)
+
+    async def _store_rollout(
+        self, codex_home: str, thread_id: str, path: Path, data: bytes
+    ) -> None:
+        """Save a rollout read by :meth:`_read_rollout` and its thread record."""
+        session = self._require_session()
+        rel = os.path.relpath(path, codex_home)
+        await session.set_rollout(encode_rollout(rel, data))
+        await session.set_thread(ThreadRecord(thread_id, rel))
+
+    async def _checkpoint_rollout(self, codex_home: str, thread_id: str) -> None:
+        """Save the thread's rollout as it stands (after a completed turn)."""
+        path, data = await self._read_rollout(codex_home, thread_id)
+        await self._store_rollout(codex_home, thread_id, path, data)
 
     @staticmethod
     def _suspended_result(pending: dict[str, PendingCall]) -> UiPathRuntimeResult:
@@ -1798,13 +1875,13 @@ class UiPathCodexRuntime:
     def _codex_home_dir(self, tools: dict[str, UiPathDurableTool]) -> str | None:
         """``CODEX_HOME`` to run codex with, or None to leave it as it was.
 
-        Durable tools need a run-scoped home (the rollout is saved from and
-        restored into it). Agents without them keep codex's own resolution
+        Durable tools and conversational agents need a run-scoped home (the
+        rollout is saved from and restored into it). Agents without them keep codex's own resolution
         (``$CODEX_HOME`` or ``~/.codex``) unless ``agent.codex_home`` is set.
         """
         if self.agent.codex_home:
             path = self.agent.codex_home
-        elif tools:
+        elif tools or self._conversational:
             path = self._codex_home or os.path.join(
                 self._project_dir(), "__uipath", CODEX_HOME_DIR
             )
@@ -1817,7 +1894,7 @@ class UiPathCodexRuntime:
     def _hermetic(self, tools: dict[str, UiPathDurableTool]) -> bool:
         if self.agent.hermetic is not None:
             return self.agent.hermetic
-        return bool(tools)
+        return bool(tools) or self._conversational
 
     def _project_dir(self) -> str:
         return os.path.dirname(os.path.abspath(self.file_path)) or os.getcwd()

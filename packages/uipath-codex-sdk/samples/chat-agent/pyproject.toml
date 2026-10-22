@@ -1,0 +1,14 @@
+[project]
+name = "codex-chat-agent"
+version = "0.0.1"
+description = "UiPath Codex SDK conversational agent (meeting-room assistant)"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-codex-sdk>=0.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]

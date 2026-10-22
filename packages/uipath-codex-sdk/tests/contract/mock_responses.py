@@ -3,6 +3,10 @@
 Codex is registered against it via ``model_providers.mock.*`` config overrides.
 Every request body is recorded so tests can assert on exactly what the model
 would have seen. Responses are scripted by a callable supplied by the test.
+
+With ``deltas=True`` an assistant message streams as ``response.output_text.delta``
+events (between its ``output_item.added`` and ``output_item.done``), as the LLM
+Gateway streams it; Codex turns them into ``item/agentMessage/delta``.
 """
 
 from __future__ import annotations
@@ -107,9 +111,22 @@ class RecordedRequest:
     headers: dict[str, str] = field(default_factory=dict)
 
 
+def split_text(text: str, size: int = 3) -> list[str]:
+    """``text`` in word-boundary chunks of about ``size`` words (as deltas)."""
+    words = text.split(" ")
+    return [
+        " ".join(words[i : i + size]) + (" " if i + size < len(words) else "")
+        for i in range(0, len(words), size)
+    ] or [""]
+
+
 class MockResponsesServer:
-    def __init__(self, script: Script | None = None) -> None:
+    def __init__(self, script: Script | None = None, deltas: bool = False) -> None:
         self.script: Script | None = script
+        #: Stream assistant messages as text deltas.
+        self.deltas = deltas
+        #: The deltas sent, one list per streamed message.
+        self.sent_deltas: list[list[str]] = []
         self.requests: list[RecordedRequest] = []
         self.other_requests: list[tuple[str, str]] = []
         self._lock = threading.Lock()
@@ -171,6 +188,9 @@ class MockResponsesServer:
             {"type": "response.created", "response": {"id": rid}},
         ]
         for i, item in enumerate(items):
+            if self.deltas and item.get("type") == "message":
+                events.extend(self._streamed_message(i, item))
+                continue
             events.append(
                 {"type": "response.output_item.added", "output_index": i, "item": item}
             )
@@ -203,6 +223,52 @@ class MockResponsesServer:
         await resp.write(data)
         await resp.write_eof()
         return resp
+
+    def _streamed_message(self, index: int, item: JsonObj) -> list[JsonObj]:
+        text = "".join(
+            p.get("text", "") for p in item.get("content") or [] if isinstance(p, dict)
+        )
+        chunks = split_text(text)
+        with self._lock:
+            self.sent_deltas.append(chunks)
+        empty = {**item, "status": "in_progress", "content": []}
+        events: list[JsonObj] = [
+            {
+                "type": "response.output_item.added",
+                "output_index": index,
+                "item": empty,
+            },
+            {
+                "type": "response.content_part.added",
+                "item_id": item["id"],
+                "output_index": index,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": "", "annotations": []},
+            },
+        ]
+        for chunk in chunks:
+            events.append(
+                {
+                    "type": "response.output_text.delta",
+                    "item_id": item["id"],
+                    "output_index": index,
+                    "content_index": 0,
+                    "delta": chunk,
+                }
+            )
+        events.append(
+            {
+                "type": "response.output_text.done",
+                "item_id": item["id"],
+                "output_index": index,
+                "content_index": 0,
+                "text": text,
+            }
+        )
+        events.append(
+            {"type": "response.output_item.done", "output_index": index, "item": item}
+        )
+        return events
 
     # -- helpers for tests (thread-safe) -----------------------------------
     def snapshot(self) -> list[RecordedRequest]:
@@ -254,6 +320,7 @@ __all__ = [
     "function_call_item",
     "message_item",
     "find_tool",
+    "split_text",
     "input_items",
     "last_user_text",
     "summarize_input",

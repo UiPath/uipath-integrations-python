@@ -70,7 +70,8 @@ class UiPathCodexAgent:
             :class:`~uipath_codex_sdk.UiPathTool`) are answered as soon as
             their work is done and never suspend the run.
         codex_home: ``CODEX_HOME`` for the codex process. With durable tools
-            it defaults to a run-scoped directory under the runtime dir
+            (and for a conversational agent) it defaults to a run-scoped
+            directory under the runtime dir
             (``__uipath/codex_home``), reset together with the state database
             on a fresh local run; ``~/.codex`` (config.toml, AGENTS.md) is then
             not read. Without durable tools it defaults to codex's own
@@ -78,7 +79,7 @@ class UiPathCodexAgent:
         hermetic: Pass ``--config`` overrides that stop codex from calling the
             ChatGPT backend (``features.plugins=false`` and an unreachable
             ``chatgpt_base_url``). ``None`` (default) turns them on only for
-            agents with durable tools.
+            agents with durable tools and conversational agents.
         durable_tool_instructions: Tag durable tool descriptions with
             ``[long-running]`` and add one developer instruction about them
             (call independent ones together; never retry one that is pending).

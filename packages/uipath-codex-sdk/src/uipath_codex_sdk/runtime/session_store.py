@@ -16,7 +16,12 @@ Keys (namespace ``codex_sdk``):
   rollout order, with its output type and (for siblings) the output to inject;
 * ``entrypoint`` – the entrypoint the run started on;
 * ``trace`` – the job's ``Agent run`` span, left open while the run is
-  suspended (see :func:`.telemetry.span_record`).
+  suspended (see :func:`.telemetry.span_record`);
+* ``chat`` – a conversational agent's chat state: the messages and tool calls
+  of the exchange still open in the chat (see :mod:`.chat_events`).
+
+A conversational agent keeps ``thread`` and ``rollout`` across exchanges: the
+conversation is the Codex thread, checkpointed after every exchange.
 """
 
 from __future__ import annotations
@@ -45,6 +50,7 @@ _COMPLETED_KEY = "completed"
 _DANGLING_KEY = "dangling"
 _ENTRYPOINT_KEY = "entrypoint"
 _TRACE_KEY = "trace"
+_CHAT_KEY = "chat"
 
 #: A compressed rollout above this size is stored, with a warning.
 ROLLOUT_WARN_BYTES = 8 * 1024 * 1024
@@ -491,6 +497,15 @@ class CodexSessionStore:
     async def set_trace(self, record: dict[str, Any] | None) -> None:
         await self._set(_TRACE_KEY, record)
 
+    # chat ------------------------------------------------------------------
+    async def get_chat(self) -> dict[str, Any]:
+        """The chat state of a conversational agent (empty when none)."""
+        raw = await self._get(_CHAT_KEY)
+        return raw if isinstance(raw, dict) else {}
+
+    async def set_chat(self, state: dict[str, Any] | None) -> None:
+        await self._set(_CHAT_KEY, state or None)
+
     # rollout ---------------------------------------------------------------
     async def get_rollout(self) -> RolloutRecord | None:
         return RolloutRecord.from_stored(await self._get(_ROLLOUT_KEY))
@@ -568,6 +583,7 @@ class CodexSessionStore:
         await self._set(_ROLLOUT_KEY, None)
         await self._set(_ENTRYPOINT_KEY, None)
         await self._set(_TRACE_KEY, None)
+        await self._set(_CHAT_KEY, None)
 
 
 __all__ = [

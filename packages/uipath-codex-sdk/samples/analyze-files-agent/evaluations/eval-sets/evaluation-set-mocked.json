@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "id": "analyze-files-agent-mocked",
+  "name": "Document questions (mocked Analyze Files)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "total-mockito",
+      "name": "Mockito: a fixed analysis",
+      "inputs": {
+        "document": {
+          "ID": "00000000-0000-0000-0000-000000000000",
+          "FullName": "invoice.pdf",
+          "MimeType": "application/pdf"
+        },
+        "question": "What is the total amount due, and by when?"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "1,234.00"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "Analyze_Files"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "Analyze Files",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "analysisResult": "The total amount due is 1,234.00 EUR, payable by 2026-12-01."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

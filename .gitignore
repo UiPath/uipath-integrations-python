@@ -190,6 +190,17 @@ playground.py
 **/samples/**/AGENTS.md
 **/samples/**/CLAUDE.md
 **/samples/**/bindings.json
+# Hand-written bindings of the codex-sdk samples (process, connection and
+# index binding examples).
+!packages/uipath-codex-sdk/samples/durable-process-tool/bindings.json
+!packages/uipath-codex-sdk/samples/integration-tool-agent/bindings.json
+!packages/uipath-codex-sdk/samples/slack-message-agent/bindings.json
+!packages/uipath-codex-sdk/samples/outlook-email-agent/bindings.json
+!packages/uipath-codex-sdk/samples/jira-issue-agent/bindings.json
+!packages/uipath-codex-sdk/samples/context-grounding-agent/bindings.json
+!packages/uipath-codex-sdk/samples/deep-rag-agent/bindings.json
+!packages/uipath-codex-sdk/samples/escalation-agent/bindings.json
 **/samples/**/entry-points.json
+**/samples/**/traces.jsonl
 **/samples/**/uv.lock
 **/**/.claude/settings.local.json

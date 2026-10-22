@@ -1,0 +1,24 @@
+{
+  "$resourceType": "tool",
+  "type": "Process",
+  "name": "Add Shipping",
+  "description": "Adds the shipping fee to the number of items of an order.",
+  "isEnabled": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "a": {"type": "integer", "description": "Number of items"},
+      "b": {"type": "integer", "description": "Shipping fee"}
+    },
+    "required": ["a", "b"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {"c": {"type": "integer", "description": "The sum a + b"}}
+  },
+  "properties": {"processName": "a_plus_b", "folderPath": "Coded/a_plus_b"},
+  "argumentProperties": {
+    "$['a']": {"variant": "argument", "argumentPath": "$['order']['items']", "isSensitive": false},
+    "$['b']": {"variant": "static", "value": 1000, "isSensitive": false}
+  }
+}

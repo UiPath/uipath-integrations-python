@@ -1,0 +1,6 @@
+{
+  "ProjectType": "Agent",
+  "Name": "codex-structured-output-agent",
+  "Description": "UiPath Codex SDK structured-output sample",
+  "MainFile": null
+}

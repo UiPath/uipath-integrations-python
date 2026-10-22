@@ -1,0 +1,59 @@
+{
+  "version": "1.0",
+  "id": "deep-rag-agent-mocked",
+  "name": "Finance research (mocked DeepRAG)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "fed-tools-mockito",
+      "name": "Mockito: a fixed research answer",
+      "inputs": {
+        "question": "What are the Federal Reserve's main monetary policy tools?"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "open market operations"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "research_finance"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "Research Finance Resources",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "text": "The Federal Reserve's main tools are open market operations [1], the discount rate [2] and reserve requirements [2].",
+                  "citations": [
+                    {
+                      "ordinal": 1,
+                      "pageNumber": 3,
+                      "source": "fed-policy-tools.pdf",
+                      "reference": "Open market operations"
+                    },
+                    {
+                      "ordinal": 2,
+                      "pageNumber": 7,
+                      "source": "fed-policy-tools.pdf",
+                      "reference": "Discount window and reserves"
+                    }
+                  ],
+                  "deepRagId": "00000000-0000-0000-0000-000000000000"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

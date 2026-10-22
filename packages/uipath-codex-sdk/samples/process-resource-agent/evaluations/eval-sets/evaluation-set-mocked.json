@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "id": "process-resource-agent-mocked",
+  "name": "Order total (mocked a_plus_b)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "prefilled-mockito",
+      "name": "Mockito: matched on the pre-filled arguments",
+      "inputs": {
+        "order": {
+          "items": 7
+        }
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "1007"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "Add_Shipping"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "Add Shipping",
+            "arguments": {
+              "kwargs": {
+                "a": 7,
+                "b": 1000
+              }
+            },
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "c": 1007
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -126,7 +126,7 @@ class UiPathAnthropicClient:
         )
 
         return AnthropicClient(
-            model_id=model,
+            model=model,
             anthropic_client=anthropic_client,
             **kwargs,
         )

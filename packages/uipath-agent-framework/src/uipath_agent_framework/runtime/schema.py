@@ -333,13 +333,13 @@ def _add_executor_tool_nodes(
 def _get_model_name(agent: Any) -> str | None:
     """Extract the model name from an agent's chat client.
 
-    Chat clients (OpenAIChatClient, AnthropicClient) store the model
-    identifier as ``model_id`` on the client instance.
+    Chat clients (OpenAIChatCompletionClient, AnthropicClient) store the
+    model identifier as ``model`` on the client instance.
     """
     try:
-        model_id = agent.client.model_id
-        if isinstance(model_id, str):
-            return model_id
+        model = agent.client.model
+        if isinstance(model, str) and model:
+            return model
     except AttributeError:
         pass
     return None

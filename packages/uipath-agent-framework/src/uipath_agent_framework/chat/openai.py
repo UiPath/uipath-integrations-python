@@ -2,7 +2,7 @@
 
 Routes OpenAI requests through UiPath's LLM Gateway using a
 URL-rewriting httpx transport, then passes the pre-configured
-``AsyncOpenAI`` client to the Agent Framework ``OpenAIChatClient``.
+``AsyncOpenAI`` client to the Agent Framework ``OpenAIChatCompletionClient``.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 from agent_framework import FunctionTool
 from agent_framework import tool as tool_decorator
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatCompletionClient
 from openai import AsyncOpenAI
 from uipath._utils._ssl_context import get_httpx_client_kwargs
 
@@ -57,10 +57,11 @@ class _AsyncUrlRewriteTransport(httpx.AsyncHTTPTransport):
         return await super().handle_async_request(request)
 
 
-class UiPathOpenAIChatClient(OpenAIChatClient):
+class UiPathOpenAIChatClient(OpenAIChatCompletionClient):
     """OpenAI Chat Client that routes requests through UiPath's LLM Gateway.
 
-    Subclasses Agent Framework's ``OpenAIChatClient`` and configures a
+    Subclasses Agent Framework's ``OpenAIChatCompletionClient`` (the Chat
+    Completions API, the flavor the gateway is called with) and configures a
     pre-built ``AsyncOpenAI`` client with URL-rewriting transport.
 
     Example::
@@ -91,13 +92,14 @@ class UiPathOpenAIChatClient(OpenAIChatClient):
             **client_kwargs,
         )
 
+        # openai>=3 is typed for httpx2 but still accepts an httpx client.
         async_client = AsyncOpenAI(
             api_key=token,
-            http_client=http_client,
+            http_client=http_client,  # type: ignore[arg-type]
         )
 
         super().__init__(
-            model_id=model,
+            model=model,
             async_client=async_client,
             **kwargs,
         )

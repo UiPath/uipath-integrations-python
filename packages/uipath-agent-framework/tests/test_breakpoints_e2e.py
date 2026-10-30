@@ -22,7 +22,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 from agent_framework import WorkflowBuilder
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatCompletionClient
 from agent_framework.orchestrations import (
     ConcurrentBuilder,
     GroupChatBuilder,
@@ -156,7 +156,9 @@ class TestGroupChatBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_chat_completions_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         researcher = client.as_agent(
             name="researcher",
@@ -318,7 +320,9 @@ class TestGroupChatBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         researcher = client.as_agent(
             name="researcher",
@@ -439,7 +443,9 @@ class TestGroupChatBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         researcher = client.as_agent(
             name="researcher",
@@ -533,7 +539,9 @@ class TestQuickstartWorkflowBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         weather_agent = client.as_agent(
             name="weather_agent",
@@ -645,7 +653,9 @@ class TestConcurrentBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         sentiment_agent = client.as_agent(
             name="sentiment",
@@ -783,7 +793,9 @@ class TestHandoffBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         triage = client.as_agent(
             name="triage",
@@ -944,7 +956,9 @@ class TestHitlWorkflowBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         triage = client.as_agent(
             name="triage",
@@ -1090,7 +1104,9 @@ class TestSequentialBreakpoints:
         mock_openai = AsyncMock()
         mock_openai.chat.completions.create = mock_create
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
         researcher = client.as_agent(
             name="researcher",
             description="Researches factual information about a city.",

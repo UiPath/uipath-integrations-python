@@ -15,14 +15,14 @@ from agent_framework import (
 from uipath_agent_framework.runtime.schema import get_agent_graph
 
 
-def _make_agent(name="test_agent", tools=None, model_id=None) -> BaseAgent:
+def _make_agent(name="test_agent", tools=None, model=None) -> BaseAgent:
     """Create a mock BaseAgent for testing."""
     agent = MagicMock(spec=BaseAgent)
     agent.name = name
     agent.default_options = {"tools": tools or []}
-    if model_id is not None:
+    if model is not None:
         client = MagicMock()
-        client.model_id = model_id
+        client.model = model
         agent.client = client
     return agent
 
@@ -484,7 +484,7 @@ class TestWorkflowGraph:
 
     def test_agent_executor_with_model_is_model_node(self):
         """AgentExecutor with a chat client becomes a model node."""
-        inner_agent = _make_agent(name="assistant", model_id="gpt-4.1-mini-2025-04-14")
+        inner_agent = _make_agent(name="assistant", model="gpt-4.1-mini-2025-04-14")
         executors = {
             "assistant": _make_executor("assistant", agent=inner_agent),
         }
@@ -537,9 +537,9 @@ class TestWorkflowGraph:
 
     def test_multi_agent_workflow_with_different_models(self):
         """Multiple agents with different models each get their model name."""
-        triage_agent = _make_agent(name="triage", model_id="gpt-4.1-2025-04-14")
+        triage_agent = _make_agent(name="triage", model="gpt-4.1-2025-04-14")
         billing_agent = _make_agent(
-            name="billing", model_id="anthropic.claude-haiku-4-5-20251001-v1:0"
+            name="billing", model="anthropic.claude-haiku-4-5-20251001-v1:0"
         )
         executors = {
             "triage": _make_executor("triage", agent=triage_agent),

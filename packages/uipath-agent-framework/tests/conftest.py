@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from openai.types import CompletionUsage
@@ -20,6 +22,38 @@ from openai.types.chat.chat_completion_message_tool_call import (
     ChatCompletionMessageToolCall,
     Function,
 )
+
+
+class MockAsyncStream:
+    """Async iterable that is also an async context manager, like ``openai.AsyncStream``.
+
+    ``OpenAIChatCompletionClient`` consumes a streaming completion with
+    ``async with ... as stream: async for chunk in stream``.
+    """
+
+    def __init__(self, chunks: AsyncIterator[ChatCompletionChunk]):
+        self._chunks = chunks
+
+    def __aiter__(self) -> AsyncIterator[ChatCompletionChunk]:
+        return self._chunks
+
+    async def __aenter__(self) -> MockAsyncStream:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self._chunks.aclose()  # type: ignore[attr-defined]
+
+
+def as_stream(
+    factory: Callable[..., AsyncIterator[ChatCompletionChunk]],
+) -> Callable[..., MockAsyncStream]:
+    """Wrap an async generator of chunks so it returns a ``MockAsyncStream``."""
+
+    @functools.wraps(factory)
+    def wrapper(*args: Any, **kwargs: Any) -> MockAsyncStream:
+        return MockAsyncStream(factory(*args, **kwargs))
+
+    return wrapper
 
 
 def extract_system_text(messages: list[dict[str, Any]]) -> str:
@@ -63,6 +97,7 @@ def make_chat_completion(text: str) -> ChatCompletion:
     )
 
 
+@as_stream
 async def make_streaming_response(text: str):
     """Create an async iterable of ChatCompletionChunks for streaming."""
     yield ChatCompletionChunk(
@@ -94,6 +129,7 @@ async def make_streaming_response(text: str):
     )
 
 
+@as_stream
 async def make_chunked_streaming_response(text: str, chunk_size: int = 4):
     """Create streaming chunks that simulate token-by-token LLM output."""
     for i in range(0, len(text), chunk_size):
@@ -165,6 +201,7 @@ def make_tool_call_completion(tool_name: str, arguments: str = "{}") -> ChatComp
     )
 
 
+@as_stream
 async def make_streaming_tool_call(tool_name: str, arguments: str = "{}"):
     """Create streaming chunks for a tool call response."""
     yield ChatCompletionChunk(

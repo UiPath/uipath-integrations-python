@@ -1,4 +1,4 @@
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatCompletionClient
 
 
 def get_weather(location: str) -> str:
@@ -15,7 +15,7 @@ def get_weather(location: str) -> str:
 
 
 # Create an agent with tools
-agent = OpenAIChatClient(model_id="gpt-4o-mini").as_agent(
+agent = OpenAIChatCompletionClient(model="gpt-4o-mini").as_agent(
     name="weather_agent",
     instructions="You are a helpful weather assistant. Use the get_weather tool to provide weather information.",
     tools=[get_weather],

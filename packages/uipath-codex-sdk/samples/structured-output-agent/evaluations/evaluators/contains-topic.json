@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "id": "evaluator-contains-topic",
+  "description": "Check that the joke mentions its topic somewhere in the output (case-insensitive).",
+  "evaluatorTypeId": "uipath-contains",
+  "evaluatorConfig": {
+    "name": "Mentions Topic",
+    "case_sensitive": false,
+    "targetOutputKey": "*"
+  }
+}

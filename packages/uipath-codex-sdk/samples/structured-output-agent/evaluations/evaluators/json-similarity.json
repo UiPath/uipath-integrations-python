@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "id": "evaluator-json-similarity",
+  "description": "Compare the whole Joke output (setup, punchline, rating) with a reference joke. Text fields score partially, so this measures shape and closeness rather than an exact answer.",
+  "evaluatorTypeId": "uipath-json-similarity",
+  "evaluatorConfig": {
+    "name": "Joke JSON Similarity",
+    "targetOutputKey": "*"
+  }
+}

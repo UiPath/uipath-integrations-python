@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "id": "evaluator-tool-call-order",
+  "description": "Check that the agent called the orders MCP tool. MCP tool spans use the plain tool name.",
+  "evaluatorTypeId": "uipath-tool-call-order",
+  "evaluatorConfig": {
+    "name": "Tool Call Order",
+    "strict": false,
+    "defaultEvaluationCriteria": {
+      "toolCallsOrder": [
+        "get_order_status"
+      ]
+    }
+  }
+}

@@ -21,9 +21,9 @@ from llama_index.core.base.llms.base import BaseLLM
 from llama_index.core.instrumentation.events.exception import ExceptionEvent
 from llama_index.core.instrumentation.events.llm import (
     LLMChatEndEvent,
-    LLMChatStartEvent,
+    LLMChatInProgressEvent,
     LLMCompletionEndEvent,
-    LLMCompletionStartEvent,
+    LLMCompletionInProgressEvent,
 )
 from llama_index.core.instrumentation.span import active_span_id
 from openinference.instrumentation.llama_index import (
@@ -38,64 +38,50 @@ from opentelemetry.trace import Span
 
 from uipath_llamaindex._trace_context import use_client_llm_spans
 
-# llama-index's chat / completion wrapper emits a start event when the call
-# begins and exactly one of these when it's done: at once for a plain call,
-# and for a stream when it's exhausted, fails or is closed (GeneratorExit).
-_STARTS = (LLMChatStartEvent, LLMCompletionStartEvent)
-_ENDS = (LLMChatEndEvent, LLMCompletionEndEvent, ExceptionEvent)
+# What llama-index's chat / completion wrapper emits for a stream after the
+# call has returned: one per chunk, then an end or (failed, closed) exception.
+_STREAM_EVENTS = (
+    LLMChatInProgressEvent,
+    LLMCompletionInProgressEvent,
+    LLMChatEndEvent,
+    LLMCompletionEndEvent,
+    ExceptionEvent,
+)
 
 
 class _SkippedLlmCalls:
-    """LLM calls that have no span, and where they nest instead.
+    """LLM calls with no span that are running, and where they nest instead.
 
-    A call is forgotten once nothing can refer to it any more: when it returns
-    or fails, or, if it returned a stream that still emits events with its span
-    id, when that stream's last event arrives.
+    A call is kept only while it runs: llama-index always reports its exit or
+    drop, so nothing outlives it. A stream it returned emits more events with
+    its id later; those are recognised by their type (``_STREAM_EVENTS`` for a
+    span OpenInference doesn't know), so a stream that is never read costs
+    nothing.
     """
 
     def __init__(self) -> None:
-        self._nearest_created: dict[str, Optional[str]] = {}
-        self._running: set[str] = set()
-        self._awaiting_end: set[str] = set()
+        self._parents: dict[str, Optional[str]] = {}
 
     def __contains__(self, span_id: object) -> bool:
-        return span_id in self._nearest_created
+        return span_id in self._parents
 
     def __len__(self) -> int:
-        return len(self._nearest_created)
+        return len(self._parents)
 
     def skip(self, span_id: str, parent_id: Optional[str]) -> None:
-        self._nearest_created[span_id] = parent_id
-        self._running.add(span_id)
+        self._parents[span_id] = parent_id
 
     def nearest_created(self, span_id: Optional[str]) -> Optional[str]:
         """The span itself if it was created, otherwise its nearest ancestor."""
-        if span_id in self._nearest_created:
-            return self._nearest_created[span_id]
+        if span_id in self._parents:
+            return self._parents[span_id]
         return span_id
 
-    def returned(self, span_id: str) -> None:
-        self._running.discard(span_id)
-        if span_id not in self._awaiting_end:
-            self.forget(span_id)
-
-    def saw_event(self, span_id: str, event: Any) -> None:
-        if isinstance(event, _STARTS):
-            self._awaiting_end.add(span_id)
-        elif isinstance(event, _ENDS):
-            self._awaiting_end.discard(span_id)
-            if span_id not in self._running:
-                self.forget(span_id)
-
     def forget(self, span_id: str) -> None:
-        self._nearest_created.pop(span_id, None)
-        self._running.discard(span_id)
-        self._awaiting_end.discard(span_id)
+        self._parents.pop(span_id, None)
 
     def clear(self) -> None:
-        self._nearest_created.clear()
-        self._running.clear()
-        self._awaiting_end.clear()
+        self._parents.clear()
 
 
 _skipped = _SkippedLlmCalls()
@@ -130,7 +116,7 @@ class _SkipLlmSpanHandler(_SpanHandler):
         **kwargs: Any,
     ) -> Any:
         if id_ in _skipped:
-            _skipped.returned(id_)
+            _skipped.forget(id_)
             return None
         return super().prepare_to_exit_span(id_, bound_args, instance, result, **kwargs)
 
@@ -147,13 +133,29 @@ class _SkipLlmSpanHandler(_SpanHandler):
             return None
         return super().prepare_to_drop_span(id_, bound_args, instance, err, **kwargs)
 
+    def knows(self, span_id: str) -> bool:
+        """Whether OpenInference has a span for this id, open or still streaming."""
+        with self.lock:
+            if span_id in self.open_spans:
+                return True
+        return self._export_queue.find(span_id) is not None
+
 
 class _SkipLlmEventHandler(EventHandler):
     """OpenInference's event handler, ignoring events of LLM calls with no span."""
 
     def handle(self, event: Any, **kwargs: Any) -> Any:
         if event.span_id in _skipped:
-            _skipped.saw_event(event.span_id, event)
+            return event
+        # A stream returned by a call with no span: the call is gone, and its
+        # later events would otherwise be logged as a missing span.
+        span_handler = self._span_handler
+        if (
+            event.span_id
+            and isinstance(event, _STREAM_EVENTS)
+            and isinstance(span_handler, _SkipLlmSpanHandler)
+            and not span_handler.knows(event.span_id)
+        ):
             return event
         return super().handle(event, **kwargs)
 

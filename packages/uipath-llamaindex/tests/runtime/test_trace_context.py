@@ -17,8 +17,18 @@ from unittest.mock import patch
 
 import httpx
 import pytest
-from llama_index.core.llms import CompletionResponse, MockLLM
+from llama_index.core.instrumentation.events import BaseEvent
+from llama_index.core.instrumentation.events.exception import ExceptionEvent
+from llama_index.core.instrumentation.events.llm import (
+    LLMChatEndEvent,
+    LLMChatInProgressEvent,
+    LLMChatStartEvent,
+    LLMCompletionEndEvent,
+    LLMCompletionInProgressEvent,
+)
+from llama_index.core.llms import ChatMessage, ChatResponse, CompletionResponse, MockLLM
 from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
+from openinference.instrumentation.llama_index import _handler as _oi_handler
 from opentelemetry.sdk.trace import ReadableSpan, Span, SpanProcessor, TracerProvider
 from uipath.core.tracing import UiPathSpanUtils
 from uipath.runtime import UiPathRuntimeContext
@@ -118,6 +128,23 @@ def recorder() -> Iterator[_Recorder]:
     instrumentor.uninstrument()
 
 
+@pytest.fixture
+def missing_span_warnings() -> Iterator[list[str]]:
+    """OpenInference's "Open span is missing" warnings, read off its logger.
+
+    Not via caplog: other tests in the suite leave logging disabled or not
+    propagating, which would make an assertion on caplog pass vacuously.
+    """
+    seen: list[str] = []
+
+    def record(msg: object, *args: Any, **kwargs: Any) -> None:
+        if "Open span is missing" in str(msg):
+            seen.append(str(msg))
+
+    with patch.object(_oi_handler.logger, "warning", side_effect=record):
+        yield seen
+
+
 async def _run(llm: MockLLM) -> Any:
     return await _AskWorkflow(llm=llm, timeout=10).run()
 
@@ -169,13 +196,14 @@ class TestSkipClientLlmSpans:
             await _run(llm)
         assert not _llm_spans._skipped
 
-    async def test_streamed_call_is_forgotten_once_the_stream_ends(
+    async def test_streamed_call_is_forgotten_when_it_returns(
         self, recorder: _Recorder, caplog: pytest.LogCaptureFixture
     ) -> None:
         with caplog.at_level(logging.WARNING):
             stream = await MockLLM(max_tokens=None).astream_complete("a b c")
-            # The call has returned, but iterating still emits its events.
-            assert _llm_spans._skipped
+            # The call has returned: nothing is kept, though iterating still
+            # emits its events.
+            assert not _llm_spans._skipped
             chunks = [chunk.delta async for chunk in stream]
 
         assert "".join(c or "" for c in chunks) == "a b c"
@@ -210,6 +238,75 @@ class TestSkipClientLlmSpans:
 
         assert not [r for r in caplog.records if "Open span is missing" in r.message]
         assert not _llm_spans._skipped
+
+    async def test_async_stream_never_read_keeps_nothing(
+        self, recorder: _Recorder, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            # Never iterated, so no end event will ever come for it.
+            stream = await MockLLM(max_tokens=None).astream_complete("a b c")
+            assert not _llm_spans._skipped
+            del stream
+            gc.collect()
+            for _ in range(5):
+                await asyncio.sleep(0)
+
+        assert not [r for r in caplog.records if "Open span is missing" in r.message]
+        assert not _llm_spans._skipped
+
+    def test_sync_stream_never_read_keeps_nothing(
+        self, recorder: _Recorder, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            stream = MockLLM(max_tokens=None).stream_complete("a b c")
+            assert not _llm_spans._skipped
+            del stream
+            gc.collect()
+
+        assert not [r for r in caplog.records if "Open span is missing" in r.message]
+        assert not _llm_spans._skipped
+
+    @pytest.mark.parametrize(
+        "event",
+        [
+            LLMChatInProgressEvent(
+                messages=[], response=ChatResponse(message=ChatMessage())
+            ),
+            LLMChatEndEvent(messages=[], response=None),
+            LLMCompletionInProgressEvent(
+                prompt="", response=CompletionResponse(text="")
+            ),
+            LLMCompletionEndEvent(prompt="", response=CompletionResponse(text="")),
+            ExceptionEvent(exception=GeneratorExit()),
+        ],
+        ids=lambda e: type(e).__name__,
+    )
+    def test_late_stream_event_of_unknown_span_is_ignored(
+        self, recorder: _Recorder, missing_span_warnings: list[str], event: Any
+    ) -> None:
+        # What a skipped call's stream emits after the call has returned.
+        event.span_id = "MockLLM.stream_chat-gone"
+        LlamaIndexInstrumentor()._event_handler.handle(event)
+
+        assert not missing_span_warnings
+
+    @pytest.mark.parametrize(
+        "event",
+        [
+            LLMChatStartEvent(messages=[], additional_kwargs={}, model_dict={}),
+            BaseEvent(),
+        ],
+        ids=lambda e: type(e).__name__,
+    )
+    def test_other_events_of_unknown_span_still_reach_openinference(
+        self, recorder: _Recorder, missing_span_warnings: list[str], event: Any
+    ) -> None:
+        # Only stream events are ignored: anything else for a span OpenInference
+        # doesn't know is still reported as missing.
+        event.span_id = "Something.else-gone"
+        LlamaIndexInstrumentor()._event_handler.handle(event)
+
+        assert missing_span_warnings
 
     @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes"])
     async def test_client_llm_spans_env_keeps_span_and_drops_traceparent(

@@ -11,7 +11,7 @@ dependencies = [
     "llama-index-embeddings-azure-openai>=0.4.1",
     "llama-index-llms-azure-openai>=0.4.2",
     "openinference-instrumentation-llama-index>=4.3.9",
-    "uipath>=2.15.2, <2.16.0",
+    "uipath>=2.15.1, <2.16.0",
     "uipath-platform>=0.3.2, <0.4.0",
     "uipath-runtime>=0.13.5, <0.14.0",
 ]

@@ -33,8 +33,6 @@ bedrock = [
     "llama-index-llms-bedrock-converse>=0.3.0",
     "boto3>=1.28.0",
     "aiobotocore>=2.5.0",
-    # llama-index-llms-bedrock pins llama-index-llms-anthropic<0.9, which calls
-    # anthropic.types.MessageParam(...): a Union, so not callable, in anthropic 2.x.
     "anthropic>=0.62.0, <2.0.0",
 ]
 vertex = [

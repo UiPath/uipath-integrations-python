@@ -10,11 +10,13 @@ from uipath.platform.common import resolve_coded_agenthub_config
 from uipath.platform.constants import HEADER_AGENTHUB_CONFIG
 from uipath.utils import EndpointManager
 
+from .._trace_context import trace_context_headers
 from .supported_models import OpenAIModel
 
 
 class _UiPathSyncURLRewriteTransport(httpx.HTTPTransport):
     def handle_request(self, request: httpx.Request) -> httpx.Response:
+        request.headers.update(trace_context_headers())
         original_url = str(request.url)
 
         if "/openai/deployments/" in original_url:
@@ -31,6 +33,7 @@ class _UiPathSyncURLRewriteTransport(httpx.HTTPTransport):
 
 class _UiPathAsyncURLRewriteTransport(httpx.AsyncHTTPTransport):
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        request.headers.update(trace_context_headers())
         original_url = str(request.url)
 
         if "/openai/deployments/" in original_url:

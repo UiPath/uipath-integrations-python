@@ -145,6 +145,12 @@ def missing_span_warnings() -> Iterator[list[str]]:
         yield seen
 
 
+def _event_handler() -> _oi_handler.EventHandler:
+    handler = LlamaIndexInstrumentor()._event_handler
+    assert handler is not None
+    return handler
+
+
 async def _run(llm: MockLLM) -> Any:
     return await _AskWorkflow(llm=llm, timeout=10).run()
 
@@ -286,7 +292,7 @@ class TestSkipClientLlmSpans:
     ) -> None:
         # What a skipped call's stream emits after the call has returned.
         event.span_id = "MockLLM.stream_chat-gone"
-        LlamaIndexInstrumentor()._event_handler.handle(event)
+        _event_handler().handle(event)
 
         assert not missing_span_warnings
 
@@ -304,7 +310,7 @@ class TestSkipClientLlmSpans:
         # Only stream events are ignored: anything else for a span OpenInference
         # doesn't know is still reported as missing.
         event.span_id = "Something.else-gone"
-        LlamaIndexInstrumentor()._event_handler.handle(event)
+        _event_handler().handle(event)
 
         assert missing_span_warnings
 

@@ -3552,7 +3552,7 @@ wheels = [
 
 [[package]]
 name = "uipath-llamaindex"
-version = "0.6.2"
+version = "0.6.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -3569,6 +3569,7 @@ dependencies = [
 [package.optional-dependencies]
 bedrock = [
     { name = "aiobotocore" },
+    { name = "anthropic" },
     { name = "boto3" },
     { name = "llama-index-llms-bedrock" },
     { name = "llama-index-llms-bedrock-converse" },
@@ -3602,6 +3603,7 @@ dev = [
 requires-dist = [
     { name = "aiobotocore", marker = "extra == 'bedrock'", specifier = ">=2.5.0" },
     { name = "aiosqlite", specifier = ">=0.21.0" },
+    { name = "anthropic", marker = "extra == 'bedrock'", specifier = ">=0.62.0,<2.0.0" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.28.0" },
     { name = "google-genai", marker = "extra == 'vertex'", specifier = ">=1.0.0" },
     { name = "llama-index", specifier = ">=0.14.13,<1.0.0" },

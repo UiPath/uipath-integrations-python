@@ -7,6 +7,7 @@
   client-side LLM span is kept and the traceparent isn't sent (the baggage is).
 """
 
+import asyncio
 import gc
 import logging
 from collections.abc import Iterator
@@ -149,8 +150,9 @@ class TestSkipClientLlmSpans:
         assert not [r for r in caplog.records if "Open span is missing" in r.message]
 
     async def test_model_error_still_propagates(self, recorder: _Recorder) -> None:
+        llm = _FailingLLM(max_tokens=None)
         with pytest.raises(Exception, match="gateway said no"):
-            await _run(_FailingLLM(max_tokens=None))
+            await _run(llm)
 
         step_span = next(s for s in recorder.ended if s.name == "_AskWorkflow.ask")
         assert not step_span.status.is_ok
@@ -162,11 +164,12 @@ class TestSkipClientLlmSpans:
         await _run(_RecordingLLM(max_tokens=None))
         assert not _llm_spans._skipped
 
+        llm = _FailingLLM(max_tokens=None)
         with pytest.raises(Exception, match="gateway said no"):
-            await _run(_FailingLLM(max_tokens=None))
+            await _run(llm)
         assert not _llm_spans._skipped
 
-    async def test_streamed_call_is_forgotten_once_the_stream_is_gone(
+    async def test_streamed_call_is_forgotten_once_the_stream_ends(
         self, recorder: _Recorder, caplog: pytest.LogCaptureFixture
     ) -> None:
         with caplog.at_level(logging.WARNING):
@@ -178,9 +181,34 @@ class TestSkipClientLlmSpans:
         assert "".join(c or "" for c in chunks) == "a b c"
         assert "LLM" not in recorder.kinds()
         assert not [r for r in caplog.records if "Open span is missing" in r.message]
+        assert not _llm_spans._skipped
 
-        del stream
-        gc.collect()
+    async def test_abandoned_async_stream_closes_without_warnings(
+        self, recorder: _Recorder, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            stream = await MockLLM(max_tokens=None).astream_complete("a b c")
+            await anext(stream)
+            # Dropped half-way: the event loop closes it later, after it's
+            # collected, and closing emits an ExceptionEvent for its span id.
+            del stream
+            gc.collect()
+            for _ in range(5):
+                await asyncio.sleep(0)
+
+        assert not [r for r in caplog.records if "Open span is missing" in r.message]
+        assert not _llm_spans._skipped
+
+    def test_abandoned_sync_stream_closes_without_warnings(
+        self, recorder: _Recorder, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            stream = MockLLM(max_tokens=None).stream_complete("a b c")
+            next(stream)
+            del stream
+            gc.collect()
+
+        assert not [r for r in caplog.records if "Open span is missing" in r.message]
         assert not _llm_spans._skipped
 
     @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes"])

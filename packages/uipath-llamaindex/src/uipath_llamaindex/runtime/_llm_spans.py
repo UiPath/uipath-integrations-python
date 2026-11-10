@@ -15,11 +15,16 @@ span still needs three things, which the handlers below provide:
   span lands under the workflow step or agent that made the call.
 """
 
-import weakref
-from collections.abc import AsyncGenerator, Generator
 from typing import Any, Optional
 
 from llama_index.core.base.llms.base import BaseLLM
+from llama_index.core.instrumentation.events.exception import ExceptionEvent
+from llama_index.core.instrumentation.events.llm import (
+    LLMChatEndEvent,
+    LLMChatStartEvent,
+    LLMCompletionEndEvent,
+    LLMCompletionStartEvent,
+)
 from llama_index.core.instrumentation.span import active_span_id
 from openinference.instrumentation.llama_index import (
     LlamaIndexInstrumentor,
@@ -33,12 +38,25 @@ from opentelemetry.trace import Span
 
 from uipath_llamaindex._trace_context import use_client_llm_spans
 
+# llama-index's chat / completion wrapper emits a start event when the call
+# begins and exactly one of these when it's done: at once for a plain call,
+# and for a stream when it's exhausted, fails or is closed (GeneratorExit).
+_STARTS = (LLMChatStartEvent, LLMCompletionStartEvent)
+_ENDS = (LLMChatEndEvent, LLMCompletionEndEvent, ExceptionEvent)
+
 
 class _SkippedLlmCalls:
-    """LLM calls in progress that have no span, and where they nest instead."""
+    """LLM calls that have no span, and where they nest instead.
+
+    A call is forgotten once nothing can refer to it any more: when it returns
+    or fails, or, if it returned a stream that still emits events with its span
+    id, when that stream's last event arrives.
+    """
 
     def __init__(self) -> None:
         self._nearest_created: dict[str, Optional[str]] = {}
+        self._running: set[str] = set()
+        self._awaiting_end: set[str] = set()
 
     def __contains__(self, span_id: object) -> bool:
         return span_id in self._nearest_created
@@ -48,6 +66,7 @@ class _SkippedLlmCalls:
 
     def skip(self, span_id: str, parent_id: Optional[str]) -> None:
         self._nearest_created[span_id] = parent_id
+        self._running.add(span_id)
 
     def nearest_created(self, span_id: Optional[str]) -> Optional[str]:
         """The span itself if it was created, otherwise its nearest ancestor."""
@@ -55,23 +74,28 @@ class _SkippedLlmCalls:
             return self._nearest_created[span_id]
         return span_id
 
+    def returned(self, span_id: str) -> None:
+        self._running.discard(span_id)
+        if span_id not in self._awaiting_end:
+            self.forget(span_id)
+
+    def saw_event(self, span_id: str, event: Any) -> None:
+        if isinstance(event, _STARTS):
+            self._awaiting_end.add(span_id)
+        elif isinstance(event, _ENDS):
+            self._awaiting_end.discard(span_id)
+            if span_id not in self._running:
+                self.forget(span_id)
+
     def forget(self, span_id: str) -> None:
         self._nearest_created.pop(span_id, None)
-
-    def forget_when_done(self, span_id: str, result: Any) -> None:
-        """Forget a call once nothing can refer to it.
-
-        A streamed response outlives the call that returned it, and iterating
-        it still emits events with the call's span id, so the call is
-        forgotten when the stream is garbage collected.
-        """
-        if isinstance(result, (Generator, AsyncGenerator)):
-            weakref.finalize(result, self.forget, span_id)
-        else:
-            self.forget(span_id)
+        self._running.discard(span_id)
+        self._awaiting_end.discard(span_id)
 
     def clear(self) -> None:
         self._nearest_created.clear()
+        self._running.clear()
+        self._awaiting_end.clear()
 
 
 _skipped = _SkippedLlmCalls()
@@ -106,7 +130,7 @@ class _SkipLlmSpanHandler(_SpanHandler):
         **kwargs: Any,
     ) -> Any:
         if id_ in _skipped:
-            _skipped.forget_when_done(id_, result)
+            _skipped.returned(id_)
             return None
         return super().prepare_to_exit_span(id_, bound_args, instance, result, **kwargs)
 
@@ -129,6 +153,7 @@ class _SkipLlmEventHandler(EventHandler):
 
     def handle(self, event: Any, **kwargs: Any) -> Any:
         if event.span_id in _skipped:
+            _skipped.saw_event(event.span_id, event)
             return event
         return super().handle(event, **kwargs)
 

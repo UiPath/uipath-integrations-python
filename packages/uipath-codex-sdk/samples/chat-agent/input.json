@@ -1,0 +1,15 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "contentParts": [
+        {
+          "mimeType": "text/plain",
+          "data": {
+            "inline": "I need a room for 6 people on Tuesday at 10:00 for the Kingfisher review. What fits?"
+          }
+        }
+      ]
+    }
+  ]
+}

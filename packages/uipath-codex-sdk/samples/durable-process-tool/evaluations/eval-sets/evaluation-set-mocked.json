@@ -1,0 +1,101 @@
+{
+  "version": "1.0",
+  "id": "durable-process-tool-mocked",
+  "name": "Two sums (mocked a_plus_b)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "sums-mockito",
+      "name": "Mockito: one answer per pair of arguments",
+      "inputs": {
+        "x1": 17,
+        "y1": 25,
+        "x2": 42,
+        "y2": 8
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "50"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "a_plus_b",
+            "a_plus_b"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "a_plus_b",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "c": 42
+                }
+              }
+            ],
+            "arguments": {
+              "kwargs": {
+                "a": 17,
+                "b": 25
+              }
+            }
+          },
+          {
+            "function": "a_plus_b",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "c": 50
+                }
+              }
+            ],
+            "arguments": {
+              "kwargs": {
+                "a": 42,
+                "b": 8
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "sums-llm",
+      "name": "LLM: the simulated process adds",
+      "inputs": {
+        "x1": 120,
+        "y1": 7,
+        "x2": 300,
+        "y2": 45
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "345"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "a_plus_b",
+            "a_plus_b"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "llm",
+        "prompt": "The process returns the correct sum of a and b.",
+        "toolsToSimulate": [
+          {
+            "name": "a_plus_b"
+          }
+        ]
+      }
+    }
+  ]
+}

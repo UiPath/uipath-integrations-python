@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "id": "context-grounding-agent-mocked",
+  "name": "Invoice questions (mocked search)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "acme-llm",
+      "name": "LLM: one matching invoice",
+      "inputs": {
+        "question": "How much does Acme Corp owe us, and by when?"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "INV-2026-0417"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "search_invoices"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "llm",
+        "prompt": "Return one document: invoice INV-2026-0417 from Acme Corp, total 12,480.00 USD, due 2026-11-15, source acme-inv-2026-0417.pdf.",
+        "toolsToSimulate": [
+          {
+            "name": "Search Invoices"
+          }
+        ]
+      }
+    }
+  ]
+}

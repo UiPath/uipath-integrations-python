@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "id": "integration-tool-agent-mocked",
+  "name": "Web research (mocked web search)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "search-llm",
+      "name": "LLM: simulated search results",
+      "inputs": {
+        "topic": "the UiPath Codex SDK"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "docs.example.com"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "web_search"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "llm",
+        "prompt": "Return two search results about the topic, both hosted on https://docs.example.com/.",
+        "toolsToSimulate": [
+          {
+            "name": "web_search"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "version": "1.0",
+  "id": "structured-output-agent-default",
+  "name": "Structured output agent",
+  "evaluatorRefs": [
+    "evaluator-json-similarity",
+    "evaluator-contains-topic"
+  ],
+  "evaluations": [
+    {
+      "id": "joke-robots",
+      "name": "Joke about robots",
+      "inputs": {
+        "topic": "robots"
+      },
+      "evaluationCriterias": {
+        "evaluator-json-similarity": {
+          "expectedOutput": {
+            "setup": "Why did the robot go on vacation?",
+            "punchline": "To recharge its batteries.",
+            "rating": 7
+          }
+        },
+        "evaluator-contains-topic": {
+          "searchText": "robot"
+        }
+      }
+    },
+    {
+      "id": "joke-cats",
+      "name": "Joke about cats",
+      "inputs": {
+        "topic": "cats"
+      },
+      "evaluationCriterias": {
+        "evaluator-json-similarity": {
+          "expectedOutput": {
+            "setup": "Why did the cat sit on the computer?",
+            "punchline": "To keep an eye on the mouse.",
+            "rating": 7
+          }
+        },
+        "evaluator-contains-topic": {
+          "searchText": "cat"
+        }
+      }
+    },
+    {
+      "id": "joke-coffee",
+      "name": "Joke about coffee",
+      "inputs": {
+        "topic": "coffee"
+      },
+      "evaluationCriterias": {
+        "evaluator-json-similarity": {
+          "expectedOutput": {
+            "setup": "Why did the coffee file a police report?",
+            "punchline": "It got mugged.",
+            "rating": 7
+          }
+        },
+        "evaluator-contains-topic": {
+          "searchText": "coffee"
+        }
+      }
+    }
+  ]
+}

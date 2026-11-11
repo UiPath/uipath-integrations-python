@@ -1,0 +1,53 @@
+{
+  "version": "1.0",
+  "id": "batch-transform-attachments-agent-mocked",
+  "name": "Review enrichment (mocked Batch Transform)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "enrich-mockito",
+      "name": "Mockito: a fixed result file",
+      "inputs": {
+        "reviews": {
+          "ID": "00000000-0000-0000-0000-000000000000",
+          "FullName": "reviews.csv",
+          "MimeType": "text/csv"
+        },
+        "task": "Classify each review by sentiment and topic."
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "00000000-0000-0000-0000-000000000001"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "Enrich_Reviews"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "Enrich Reviews",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "result": {
+                    "ID": "00000000-0000-0000-0000-000000000001",
+                    "FullName": "reviews-enriched.csv",
+                    "MimeType": "text/csv"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

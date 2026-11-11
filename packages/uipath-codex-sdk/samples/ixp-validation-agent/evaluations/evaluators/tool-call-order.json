@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "id": "evaluator-tool-call-order",
+  "description": "Check which tools the agent called, in order.",
+  "evaluatorTypeId": "uipath-tool-call-order",
+  "evaluatorConfig": {
+    "name": "Tool Call Order",
+    "strict": false
+  }
+}

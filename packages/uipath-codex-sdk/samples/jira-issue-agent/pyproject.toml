@@ -1,0 +1,14 @@
+[project]
+name = "codex-jira-issue-agent"
+version = "0.0.1"
+description = "UiPath Codex SDK agent that creates a Jira issue and comments on it through Integration Service"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+requires-python = ">=3.11"
+dependencies = [
+    "uipath-codex-sdk>=0.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "uipath-dev",
+]

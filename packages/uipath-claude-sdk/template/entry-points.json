@@ -10,14 +10,12 @@
                 "type": "object",
                 "properties": {
                     "city": {
+                        "default": "London",
                         "description": "City to report the weather for, e.g. 'London'.",
                         "title": "City",
                         "type": "string"
                     }
                 },
-                "required": [
-                    "city"
-                ],
                 "title": "WeatherRequest"
             },
             "output": {

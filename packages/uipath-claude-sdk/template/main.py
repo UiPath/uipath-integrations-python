@@ -37,7 +37,10 @@ weather_server = create_sdk_mcp_server(
 
 
 class WeatherRequest(BaseModel):
-    city: str = Field(description="City to report the weather for, e.g. 'London'.")
+    city: str = Field(
+        default="London",
+        description="City to report the weather for, e.g. 'London'.",
+    )
 
 
 class WeatherReport(BaseModel):

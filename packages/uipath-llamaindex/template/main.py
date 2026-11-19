@@ -65,7 +65,8 @@ tools_by_name = {t.metadata.name: t for t in tools}
 
 class QueryEvent(StartEvent):
     question: str = Field(
-        description="Question for the assistant, e.g. 'What's the weather in Paris?'"
+        default="What's the weather in Paris?",
+        description="Question for the assistant, e.g. 'What's the weather in Paris?'",
     )
 
 

@@ -1,0 +1,85 @@
+{
+  "version": "1.0",
+  "id": "local-mcp-agent-default",
+  "name": "Local MCP agent",
+  "evaluatorRefs": [
+    "evaluator-tool-call-order",
+    "evaluator-tool-call-count",
+    "evaluator-tool-call-arguments",
+    "evaluator-contains-status"
+  ],
+  "evaluations": [
+    {
+      "id": "order-a-1001",
+      "name": "Order A-1001 (shipped)",
+      "inputs": {
+        "order_id": "A-1001"
+      },
+      "evaluationCriterias": {
+        "evaluator-tool-call-order": null,
+        "evaluator-tool-call-count": null,
+        "evaluator-tool-call-arguments": {
+          "toolCalls": [
+            {
+              "name": "get_order_status",
+              "args": {
+                "order_id": "A-1001"
+              }
+            }
+          ]
+        },
+        "evaluator-contains-status": {
+          "searchText": "Bucharest hub"
+        }
+      }
+    },
+    {
+      "id": "order-a-1002",
+      "name": "Order A-1002 (processing)",
+      "inputs": {
+        "order_id": "A-1002"
+      },
+      "evaluationCriterias": {
+        "evaluator-tool-call-order": null,
+        "evaluator-tool-call-count": null,
+        "evaluator-tool-call-arguments": {
+          "toolCalls": [
+            {
+              "name": "get_order_status",
+              "args": {
+                "order_id": "A-1002"
+              }
+            }
+          ]
+        },
+        "evaluator-contains-status": {
+          "searchText": "backordered"
+        }
+      }
+    },
+    {
+      "id": "order-a-1003",
+      "name": "Order A-1003 (delivered)",
+      "inputs": {
+        "order_id": "A-1003"
+      },
+      "evaluationCriterias": {
+        "evaluator-tool-call-order": null,
+        "evaluator-tool-call-count": null,
+        "evaluator-tool-call-arguments": {
+          "toolCalls": [
+            {
+              "name": "get_order_status",
+              "args": {
+                "order_id": "A-1003"
+              }
+            }
+          ]
+        },
+        "evaluator-contains-status": {
+          "searchText": "J. Popescu"
+        }
+      }
+    }
+  ]
+}

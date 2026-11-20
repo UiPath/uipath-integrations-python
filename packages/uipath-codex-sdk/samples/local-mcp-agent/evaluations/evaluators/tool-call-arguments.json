@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "id": "evaluator-tool-call-arguments",
+  "description": "Check that get_order_status was called with the requested order id.",
+  "evaluatorTypeId": "uipath-tool-call-args",
+  "evaluatorConfig": {
+    "name": "Tool Call Arguments",
+    "strict": false,
+    "subset": true,
+    "defaultEvaluationCriteria": {
+      "toolCalls": [
+        {
+          "name": "get_order_status",
+          "args": {
+            "order_id": "A-1001"
+          }
+        }
+      ]
+    }
+  }
+}

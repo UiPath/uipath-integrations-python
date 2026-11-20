@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "id": "evaluator-contains-status",
+  "description": "Check that the reply contains a detail only the orders tool knows (case-insensitive).",
+  "evaluatorTypeId": "uipath-contains",
+  "evaluatorConfig": {
+    "name": "Reports Tool Status",
+    "case_sensitive": false
+  }
+}

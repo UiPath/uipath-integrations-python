@@ -1,0 +1,26 @@
+{
+  "version": "2.0",
+  "resources": [
+    {
+      "resource": "index",
+      "key": "finance-resources.Coded",
+      "value": {
+        "name": {
+          "defaultValue": "finance-resources",
+          "isExpression": false,
+          "displayName": "Name"
+        },
+        "folderPath": {
+          "defaultValue": "Coded",
+          "isExpression": false,
+          "displayName": "Folder Path"
+        }
+      },
+      "metadata": {
+        "ActivityName": "start_deep_rag_async",
+        "BindingsVersion": "2.2",
+        "DisplayLabel": "FullName"
+      }
+    }
+  ]
+}

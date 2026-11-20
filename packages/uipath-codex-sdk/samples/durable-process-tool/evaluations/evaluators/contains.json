@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "id": "evaluator-contains",
+  "description": "Check that the output contains the expected text (case-insensitive).",
+  "evaluatorTypeId": "uipath-contains",
+  "evaluatorConfig": {
+    "name": "Contains",
+    "case_sensitive": false,
+    "targetOutputKey": "*"
+  }
+}

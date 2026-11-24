@@ -523,3 +523,43 @@ def test_c7_turn_interrupt_pollutes_history(cenv: ContractEnv, evidence: Evidenc
     assert aborted_outputs or marker, (
         f"turn/interrupt left a clean history -> SIGKILL would NOT be necessary\n{evidence.dump()}"
     )
+
+
+# ---------------------------------------------------------------------------
+# C8
+# ---------------------------------------------------------------------------
+def test_c8_model_requests_carry_the_thread_id(cenv: ContractEnv, evidence: Evidence):
+    """C8: every Responses request carries the thread id in the ``session-id``
+    and ``thread-id`` headers, and a thread resumed in a new app-server keeps
+    sending the same id (the gateway proxy keeps a local run's model calls on
+    one LLM Gateway deployment with it)."""
+    from uipath_codex_sdk.runtime.gateway.proxy import CODEX_THREAD_ID_HEADERS
+
+    cid = new_call_id()
+    s, app2, host2, home2, cwd2 = suspend_and_restore(cenv, evidence, cid)
+    n_before = len(cenv.mock.snapshot())
+    assert n_before > 0, evidence.dump()
+    th2 = app2.thread_resume(s.thread_id, cwd=cwd2)
+    app2.raw(
+        "thread/inject_items",
+        {
+            "threadId": s.thread_id,
+            "items": [
+                {"type": "function_call_output", "call_id": cid, "output": OUR_OUTPUT}
+            ],
+        },
+    )
+    handle = th2.turn("continue")
+    reqs = cenv.mock.wait_for_requests(n_before + 1, 30)
+    assert len(reqs) > n_before, (
+        f"no model request after turn/start\n{app2.stderr_tail()}\n{evidence.dump()}"
+    )
+    handle.run()
+
+    sent = [{k.lower(): v for k, v in r.headers.items()} for r in cenv.mock.snapshot()]
+    evidence.add(
+        "thread id headers per model request (before resume, after resume)",
+        ([tuple(h.get(n) for n in CODEX_THREAD_ID_HEADERS) for h in sent], n_before),
+    )
+    for name in CODEX_THREAD_ID_HEADERS:
+        assert [h.get(name) for h in sent] == [s.thread_id] * len(sent), evidence.dump()

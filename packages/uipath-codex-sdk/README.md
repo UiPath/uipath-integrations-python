@@ -147,6 +147,14 @@ The tenant's Claude, Gemini and Llama models do not. `uipath list-models`
 lists what the tenant serves; pass the name as the gateway reports it
 (`gpt-5-mini-2025-08-07`, not `gpt-5-mini`).
 
+The gateway can serve a model from several deployments, and a reasoning
+model's follow-up request fails (400 `invalid_encrypted_content`) when it lands
+on a deployment other than the one that produced the reasoning Codex replays.
+Every model call therefore carries the gateway's sticky-session headers, which
+keep a run on one deployment. `uipath-llm-client` sends them for a
+conversation (with the conversation id) and for a job (with the job key); for
+a local run, the runtime's proxy sends them with Codex's thread id.
+
 Verified with every sample: `gpt-5.6-terra`. Verified with the quickstart and
 durable process samples: `gpt-6.1-sol` and `gpt-5-mini-2025-08-07`. Smaller
 models follow tool instructions less reliably and can spend extra turns (for

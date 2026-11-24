@@ -1,0 +1,21 @@
+{
+  "version": "2.0",
+  "resources": [
+    {
+      "resource": "connection",
+      "key": "b172f2f8-e10f-4a88-b45e-2f7e62c550b2",
+      "value": {
+        "ConnectionId": {
+          "defaultValue": "b172f2f8-e10f-4a88-b45e-2f7e62c550b2",
+          "isExpression": false,
+          "displayName": "Outlook 365 connection"
+        }
+      },
+      "metadata": {
+        "Connector": "uipath-microsoft-outlook365",
+        "UseConnectionService": "True",
+        "BindingsVersion": "2.2"
+      }
+    }
+  ]
+}

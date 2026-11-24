@@ -1,0 +1,147 @@
+{
+  "version": "1.0",
+  "id": "escalation-agent-mocked",
+  "name": "Expense approval (mocked escalation)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "manager-approves-mockito",
+      "name": "Manager approves (mockito)",
+      "inputs": {
+        "employee": "Ana Pop",
+        "amount": 2500,
+        "reason": "Team offsite in Brasov"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "Budget OK for Q3"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "escalate_SimpleApprovalApp"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "escalate_simpleapprovalapp",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "action": "approve",
+                  "data": {
+                    "Comment": "Budget OK for Q3"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "manager-approves-llm",
+      "name": "Manager approves (LLM)",
+      "inputs": {
+        "employee": "Mihai Ionescu",
+        "amount": 4200,
+        "reason": "Conference tickets"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "conference"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "escalate_SimpleApprovalApp"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "llm",
+        "prompt": "The manager approves the expense, with a short comment that mentions the conference.",
+        "toolsToSimulate": [
+          {
+            "name": "escalate_simpleapprovalapp"
+          }
+        ]
+      }
+    },
+    {
+      "id": "under-the-limit",
+      "name": "Under the limit: no escalation",
+      "inputs": {
+        "employee": "Ana Pop",
+        "amount": 300,
+        "reason": "Train tickets"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "agent"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": []
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "escalate_simpleapprovalapp",
+            "then": [
+              {
+                "type": "raise",
+                "value": {
+                  "_target_": "builtins.RuntimeError"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "generated-input",
+      "name": "Generated input: large expense",
+      "inputs": {},
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "Approved for the new hires"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "escalate_SimpleApprovalApp"
+          ]
+        }
+      },
+      "inputMockingStrategy": {
+        "prompt": "An expense from Elena Radu of 5000 EUR for laptops for two new hires."
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "escalate_simpleapprovalapp",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "action": "approve",
+                  "data": {
+                    "Comment": "Approved for the new hires"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "id": "deep-rag-attachments-agent-mocked",
+  "name": "Report findings (mocked DeepRAG on an attachment)",
+  "evaluatorRefs": [
+    "evaluator-contains",
+    "evaluator-tool-call-order"
+  ],
+  "evaluations": [
+    {
+      "id": "findings-mockito",
+      "name": "Mockito: a fixed research answer",
+      "inputs": {
+        "document": {
+          "ID": "00000000-0000-0000-0000-000000000000",
+          "FullName": "report.pdf",
+          "MimeType": "application/pdf"
+        },
+        "question": "What are the main findings, and what evidence supports each one?"
+      },
+      "evaluationCriterias": {
+        "evaluator-contains": {
+          "searchText": "12%"
+        },
+        "evaluator-tool-call-order": {
+          "toolCallsOrder": [
+            "DeepRAG"
+          ]
+        }
+      },
+      "mockingStrategy": {
+        "type": "mockito",
+        "config": [
+          {
+            "function": "DeepRAG",
+            "then": [
+              {
+                "type": "return",
+                "value": {
+                  "text": "The report finds that operating costs fell 12% year over year, driven by lower energy prices.",
+                  "citations": [],
+                  "deepRagId": "00000000-0000-0000-0000-000000000000"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "version": "2.0",
+  "resources": [
+    {
+      "resource": "connection",
+      "key": "8e1d0859-a9c0-4d11-b3e0-849a8abeb7b8",
+      "value": {
+        "ConnectionId": {
+          "defaultValue": "8e1d0859-a9c0-4d11-b3e0-849a8abeb7b8",
+          "isExpression": false,
+          "displayName": "Slack connection"
+        }
+      },
+      "metadata": {
+        "Connector": "uipath-salesforce-slack",
+        "UseConnectionService": "True",
+        "BindingsVersion": "2.2"
+      }
+    }
+  ]
+}

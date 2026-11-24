@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "id": "evaluator-tool-call-count",
+  "description": "Check that the agent looked the order up exactly once.",
+  "evaluatorTypeId": "uipath-tool-call-count",
+  "evaluatorConfig": {
+    "name": "Tool Call Count",
+    "strict": false,
+    "defaultEvaluationCriteria": {
+      "toolCallsCount": {
+        "get_order_status": ["=", 1]
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "version": "2.0",
+  "resources": [
+    {
+      "resource": "connection",
+      "key": "f06551fb-25c2-4a8e-9f48-d55958c12476",
+      "value": {
+        "ConnectionId": {
+          "defaultValue": "f06551fb-25c2-4a8e-9f48-d55958c12476",
+          "isExpression": false,
+          "displayName": "Jira connection"
+        }
+      },
+      "metadata": {
+        "Connector": "uipath-atlassian-jira",
+        "UseConnectionService": "True",
+        "BindingsVersion": "2.2"
+      }
+    }
+  ]
+}

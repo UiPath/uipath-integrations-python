@@ -1,0 +1,8 @@
+{
+  "reviews": {
+    "ID": "00000000-0000-0000-0000-000000000000",
+    "FullName": "reviews.csv",
+    "MimeType": "text/csv"
+  },
+  "task": "Classify each review by sentiment and topic."
+}

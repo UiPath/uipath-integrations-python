@@ -257,7 +257,7 @@ async def test_explicit_resume_payload(project, upstream, world):
 
 @pytest.mark.parametrize("sibling_after", [True, False], ids=["after", "before"])
 async def test_shell_sibling_is_paired_on_resume(
-    project, upstream, world, sibling_after
+    shell_project, upstream, world, sibling_after
 ):
     """A non-durable sibling in the same response as a held call.
 
@@ -270,11 +270,11 @@ async def test_shell_sibling_is_paired_on_resume(
     upstream.script = script
     cid, sib = script.call_ids[0], SiblingScript.SIBLING_ID
 
-    result, _ = await _run(project, {}, resume=False)
+    result, _ = await _run(shell_project, {}, resume=False)
     assert result.status == UiPathRuntimeStatus.SUSPENDED, result
     world.finish(world.invocations[0].job_key, "Successful", {"sum": 3})
-    _new_robot(project)
-    result, _ = await _run(project, None, resume=True)
+    _new_robot(shell_project)
+    result, _ = await _run(shell_project, None, resume=True)
     assert result.status == UiPathRuntimeStatus.SUCCESSFUL, result
 
     req = _resume_request(upstream, [cid, sib])

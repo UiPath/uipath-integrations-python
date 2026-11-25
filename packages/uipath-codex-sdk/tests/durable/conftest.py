@@ -113,6 +113,21 @@ def project(tmp_path: Path, monkeypatch) -> Path:
 
 
 @pytest.fixture
+def shell_project(project: Path) -> Path:
+    """``project`` with an agent whose shell commands run on Windows too.
+
+    There Codex has no sandbox for a read-only agent's commands and rejects
+    them unstarted, without the command item these tests are about.
+    """
+    (project / "main.py").write_text(
+        AGENT_MAIN.replace(
+            'model="mock-model"', 'model="mock-model", sandbox="full-access"'
+        )
+    )
+    return project
+
+
+@pytest.fixture
 def cli_env(tmp_path: Path, monkeypatch, world: FakeOrchestrator):
     """A project for the real ``uipath`` CLI, which calls ``asyncio.run``
     itself: the mock model server runs on a background loop."""

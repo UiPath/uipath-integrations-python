@@ -51,6 +51,10 @@ from uipath_codex_sdk import UiPathCodexAgent
 agent = UiPathCodexAgent(model="mock-model", prompt="Say hi to {name}.")
 """
 
+SHELL_MAIN = PLAIN_MAIN.replace(
+    'model="mock-model"', 'model="mock-model", sandbox="full-access"'
+)
+
 
 class ShellScript:
     """Mock model: run one shell command, then answer."""
@@ -159,11 +163,20 @@ def plain_project(project: Path) -> Path:
     return project
 
 
-async def test_state_events_reach_the_debug_bridge(plain_project, upstream, caplog):
+@pytest.fixture
+def plain_shell_project(project: Path) -> Path:
+    """Shell commands run on Windows too: see ``shell_project``."""
+    (project / "main.py").write_text(SHELL_MAIN)
+    return project
+
+
+async def test_state_events_reach_the_debug_bridge(
+    plain_shell_project, upstream, caplog
+):
     upstream.script = ShellScript()
     bridge = ScriptedBridge()
     with caplog.at_level(logging.WARNING, logger=RUNTIME_LOGGER):
-        events = await _debug_run(plain_project, bridge, {"name": "Ada"})
+        events = await _debug_run(plain_shell_project, bridge, {"name": "Ada"})
 
     assert events[-1].status == UiPathRuntimeStatus.SUCCESSFUL
     assert bridge.log == ["connect", "started", "completed:SUCCESSFUL", "disconnect"]
@@ -174,7 +187,6 @@ async def test_state_events_reach_the_debug_bridge(plain_project, upstream, capl
     ]
     assert len(shell) == 1, [e.node_name for e in bridge.state_events]
     assert shell[0].node_name == "tools"
-    # Whether the command itself ran depends on the host's sandbox support.
     assert "echo debug-ran" in shell[0].payload["command"]
     assert {e.node_name for e in bridge.state_events} <= {"agent", "tools"}
     assert all(e.execution_id == RUNTIME_ID for e in bridge.state_events)

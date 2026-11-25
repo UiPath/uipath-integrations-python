@@ -251,7 +251,7 @@ def rollout_for_thread(codex_home: Path, thread_id: str) -> Path | None:
 def read_rollout(path: Path) -> list[JsonObj]:
     out: list[JsonObj] = []
     try:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return out
     for line in text.splitlines():

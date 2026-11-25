@@ -19,12 +19,17 @@ import json
 import logging
 import socket
 import time
+import uuid
 from typing import Any, Protocol
 
 import httpx
 from aiohttp import web
 from aiohttp.client_exceptions import ClientConnectionResetError
 from opentelemetry.context import Context
+from uipath.llm_client.settings.constants import (
+    HEADER_LLMGATEWAY_STICKY_SESSION,
+    HEADER_LLMGATEWAY_STICKY_SESSION_TRANSACTION_ID,
+)
 
 from ..telemetry import (
     ModelCallSpan,
@@ -43,6 +48,12 @@ SHUTDOWN_TIMEOUT = 5.0
 GZIP_MAGIC = b"\x1f\x8b"
 #: Path the durable tool host (an MCP endpoint) is mounted on.
 MCP_PATH = "/mcp"
+
+#: The gateway accepts a sticky-session transaction id of up to 128 characters.
+MAX_TRANSACTION_ID_LENGTH = 128
+#: Headers codex (0.161) puts its thread id in on every Responses request. The
+#: id survives a suspend/resume, since the resumed run reopens the same thread.
+CODEX_THREAD_ID_HEADERS = ("session-id", "thread-id")
 
 
 class MountedHandler(Protocol):
@@ -75,6 +86,8 @@ class CodexGatewayProxy:
         trace_context: Context | None = None,
     ) -> None:
         self._upstream = upstream
+        # Sticky-session id for a request that carries no Codex thread id.
+        self._fallback_transaction_id = uuid.uuid4().hex
         self._trace_context = trace_context
         self._api_key = api_key.encode()
         self._default_model = default_model
@@ -202,7 +215,11 @@ class CodexGatewayProxy:
 
         client = await self._upstream.get(model)
         body = json.dumps(payload).encode()
-        headers = {"content-type": "application/json", **span.trace_headers()}
+        headers = {
+            "content-type": "application/json",
+            **span.trace_headers(),
+            **self._sticky_session_headers(request, client),
+        }
         try:
             if payload.get("stream"):
                 response, completed = await self._forward_stream(
@@ -220,6 +237,37 @@ class CodexGatewayProxy:
             error=None if status == 200 else f"HTTP {status}",
         )
         return response
+
+    def _sticky_session_headers(
+        self, request: web.Request, client: httpx.AsyncClient
+    ) -> dict[str, str]:
+        """Sticky-session headers for a run uipath-llm-client did not pin.
+
+        The LLM Gateway can serve a model from several deployments. Codex calls
+        the Responses API with ``store: false`` and replays its encrypted
+        reasoning on each follow-up request, and only the deployment that
+        produced it can decrypt it: a follow-up served by another deployment
+        fails with 400 ``invalid_encrypted_content``. The gateway serves the
+        requests that carry the same sticky-session transaction id from one
+        deployment.
+
+        uipath-llm-client puts the headers on the upstream client when the run
+        has a conversation id or a job key, and then nothing is added here. A
+        local run has neither, so the proxy sends them, with Codex's thread id
+        as the transaction id (an id of its own if Codex sent none).
+        """
+        if HEADER_LLMGATEWAY_STICKY_SESSION in client.headers:
+            return {}
+        thread_ids = (
+            request.headers.get(name, "").strip() for name in CODEX_THREAD_ID_HEADERS
+        )
+        transaction_id = next(filter(None, thread_ids), self._fallback_transaction_id)
+        return {
+            HEADER_LLMGATEWAY_STICKY_SESSION: "true",
+            HEADER_LLMGATEWAY_STICKY_SESSION_TRANSACTION_ID: transaction_id[
+                :MAX_TRANSACTION_ID_LENGTH
+            ],
+        }
 
     # --- forwarding -------------------------------------------------------
 

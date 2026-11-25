@@ -989,19 +989,6 @@ wheels = [
 ]
 
 [[package]]
-name = "httpcore2"
-version = "2.16.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "h11" },
-    { name = "truststore" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/61/afa9d6b7452f9eca73f73d45324eb0bb52f098fd5e6049bf6b8263be9b4e/httpcore2-2.16.0.tar.gz", hash = "sha256:c72cd0413563b17e1cd8354677dff887466f8ec2551679759e93126534428643", size = 69886, upload-time = "2026-10-21T07:09:45.31Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/c2/ce417c397afa5181f0e3c6ff01a4d01639414e1adef08730d97571297151/httpcore2-2.16.0-py3-none-any.whl", hash = "sha256:5c4358319f2602d984ad93182c9fee5160f22e9da7babdda870a5e7c4e2dc34f", size = 85070, upload-time = "2026-10-21T07:09:42.802Z" },
-]
-
-[[package]]
 name = "httptools"
 version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1116,29 +1103,12 @@ wheels = [
 ]
 
 [[package]]
-name = "httpx2"
-version = "2.16.0"
+name = "httpx-sse"
+version = "0.4.3"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio", marker = "sys_platform != 'emscripten'" },
-    { name = "httpcore2", marker = "sys_platform != 'emscripten'" },
-    { name = "httpx2-jsfetch", marker = "python_full_version >= '3.12' and sys_platform == 'emscripten'" },
-    { name = "idna" },
-    { name = "truststore", marker = "sys_platform != 'emscripten'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/43/73/5ca2cedf5e4e50423d1c258877865a6b62793633b561c58499f8aeb33b7e/httpx2-2.16.0.tar.gz", hash = "sha256:0d54c98128e8f2ff7fbbde0fca8c359e5f032edeaaaac443cdb7f31f685bcd7f", size = 103116, upload-time = "2026-10-21T07:09:46.348Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/4c/751061ffa58615a32c31b2d82e8482be8dd4a89154f003147acee90f2be9/httpx_sse-0.4.3.tar.gz", hash = "sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d", size = 15943, upload-time = "2025-10-10T21:48:22.271Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/3d/2e4bc4fd1ef9770871669adb348d612a6e4786b303a23f9935b81c48dd60/httpx2-2.16.0-py3-none-any.whl", hash = "sha256:fd2c5d7909e8d86fe92d53020c310ca0e4e431b838c207c5754b9bbf0308d49a", size = 97880, upload-time = "2026-10-21T07:09:44.01Z" },
-]
-
-[[package]]
-name = "httpx2-jsfetch"
-version = "1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/cd/c4/0e5636363151a2a1795e0a77617168b9ca438e1748ec05fc9b5687f93d64/httpx2_jsfetch-1.0.tar.gz", hash = "sha256:70a0e3eabfef7cce5ad9c629f7d01ca05e418f586646f4ddf14782e4c1454c60", size = 6872, upload-time = "2026-08-07T00:13:07.492Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/43/832f631d32e4f1211caa2ba368317739fe71f0b8530e4c9d15dc454bac2a/httpx2_jsfetch-1.0-py3-none-any.whl", hash = "sha256:cb916b707601e69a07721aabc8f3f6659be3a6893bc1ff5c6f9e02241df2da32", size = 6382, upload-time = "2026-08-07T00:13:06.567Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/fd/6668e5aec43ab844de6fc74927e155a3b37bf40d7c3790e49fc0406b6578/httpx_sse-0.4.3-py3-none-any.whl", hash = "sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc", size = 8960, upload-time = "2025-10-10T21:48:21.158Z" },
 ]
 
 [[package]]
@@ -1443,15 +1413,15 @@ linkify = [
 
 [[package]]
 name = "mcp"
-version = "2.3.0"
+version = "1.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "httpx2" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
     { name = "jsonschema" },
-    { name = "mcp-types" },
-    { name = "opentelemetry-api" },
     { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-multipart" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
@@ -1461,28 +1431,15 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/8d/e0d339616f4810e9051d4aba6887afab289ab1f81875fe908b606cdfd0e3/mcp-2.3.0.tar.gz", hash = "sha256:8b147a50441cf059dc88c684e0aeed3687f0aa0f39c6cde7b90330effd2b34d8", size = 4171955, upload-time = "2026-10-02T22:06:56.091Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/93/0142dc84a666daf8ad51a34268f34c12fd6fda4f3810c4be2504eecc8212/mcp-1.30.0.tar.gz", hash = "sha256:445414625fce5c295faa505bb11bacece661ab6f4028d57c935db57820b7a3e4", size = 680511, upload-time = "2026-09-07T14:34:15.845Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/d7/4a2878f128df729db3ca04e71bfce26405cc2e0c9ebe19c592feeb4c61b9/mcp-2.3.0-py3-none-any.whl", hash = "sha256:dd0c44c089d16453e8ae31a3877a0054d7a2314caaa81f5e0541b9b1734b2377", size = 368664, upload-time = "2026-10-02T22:06:52.119Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/f4/e58bc33317c92a0203664daaf00bf6f41166cc0149e5d6870a03f7cd004a/mcp-1.30.0-py3-none-any.whl", hash = "sha256:666edb5009503e1047c9d60346a756f94b261f05cc2625f23d41c728ffc484d0", size = 234581, upload-time = "2026-09-07T14:34:14.266Z" },
 ]
 
 [package.optional-dependencies]
 cli = [
     { name = "python-dotenv" },
     { name = "typer" },
-]
-
-[[package]]
-name = "mcp-types"
-version = "2.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/9e/2d/7c251e34207f6c51000312fc8839111ac45cfe02023f90b44e7f1051dd8e/mcp_types-2.3.0.tar.gz", hash = "sha256:d1e46549edb35ee19a94940fcee6d1addd7e589ab7ea92dda83f5d84781fc362", size = 65898, upload-time = "2026-10-02T22:06:57.863Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/48/32583066b155bb5d4507e7887dc88ee23118cc4de8e2a12870c49719e2a8/mcp_types-2.3.0-py3-none-any.whl", hash = "sha256:968efdbdaedfab06adae40d378a34395f1090c5921d4be3c9cde283aaf76d91d", size = 69108, upload-time = "2026-10-02T22:06:54.099Z" },
 ]
 
 [[package]]
@@ -1889,19 +1846,19 @@ wheels = [
 
 [[package]]
 name = "opentelemetry-api"
-version = "1.45.1"
+version = "1.45.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/02/6e0ae9cc61bd3169d401077b507b3ebc344745171e1051ab430be012dcd9/opentelemetry_api-1.45.1.tar.gz", hash = "sha256:aa38ed19bcc084ba42782a73255b3582283eced7ad6dddbd6695189e69adfb75", size = 72804, upload-time = "2026-10-06T17:32:58.133Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/14/cf3a6b6448849656e1e5f4e2101f3988dc6789724050096aba1bc5ccf592/opentelemetry_api-1.45.2.tar.gz", hash = "sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4", size = 73277, upload-time = "2026-10-29T17:29:37.888Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl", hash = "sha256:b31553efa588ae44bc306f863c785c5333a9ecc091248c6ee68b4b6c87fdedfb", size = 60256, upload-time = "2026-10-06T17:32:33.506Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl", hash = "sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34", size = 60335, upload-time = "2026-10-29T17:29:06.955Z" },
 ]
 
 [[package]]
 name = "opentelemetry-instrumentation"
-version = "0.66b1"
+version = "0.66b2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
@@ -1909,36 +1866,36 @@ dependencies = [
     { name = "packaging" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/03/89e47ff8d52a4f83b343e6eb9ef1698ff45357216e5b6b2b21e0da5c5c7d/opentelemetry_instrumentation-0.66b1.tar.gz", hash = "sha256:e79a510f7d87c72d95e964ddb42193a0d9a75668c027d980eab032ea1322a5ce", size = 43308, upload-time = "2026-10-06T17:36:10.703Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/b9/46a136199fa6928eecefec8418867a460d94f01c608a85d22bd2ed4e8d48/opentelemetry_instrumentation-0.66b2.tar.gz", hash = "sha256:02b094150e53b76f5906d75e628dbb3833bbc6e62fa109b5c7ba0c081865e923", size = 43305, upload-time = "2026-10-29T17:38:11.618Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/b2/d1413681ff43e13ac9860df27e1226d3199ab0b97b352ceea41abcc660a5/opentelemetry_instrumentation-0.66b1-py3-none-any.whl", hash = "sha256:4c4aa14dc9a24a02325a9d4c42c4d0208dbb1374c2b1b8fe6c9392d59f3e1008", size = 36904, upload-time = "2026-10-06T17:35:11.663Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/41/014d40e2b08a5d9d9058ed4967ad992657c203ce0c292ded97364ee7b82a/opentelemetry_instrumentation-0.66b2-py3-none-any.whl", hash = "sha256:fa9ccfdab147a14af8107d19ef0a7b5015675273c5adced7a1fc38f28b42ec4c", size = 36902, upload-time = "2026-10-29T17:37:06.994Z" },
 ]
 
 [[package]]
 name = "opentelemetry-sdk"
-version = "1.45.1"
+version = "1.45.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-semantic-conventions" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/79/7392e21a1c8f0c61d90b223e31c7e48cb9d452e91a6b820ad24cca5f23c4/opentelemetry_sdk-1.45.1.tar.gz", hash = "sha256:63d24a6ca645019a631e6a51999c73e93adcac1196ca640b8ae78a7cc4762bf3", size = 218324, upload-time = "2026-10-06T17:33:13.26Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/1a/74a21d4d6969fb8b432ac397e66112a8167a6deb267ea4559dbaf2fe91ef/opentelemetry_sdk-1.45.2.tar.gz", hash = "sha256:7eec4de13dd21ff3a1670dcb0e02079e692736f94d733dfdce5af461d884248d", size = 221705, upload-time = "2026-10-29T17:29:54.685Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/95/3c/87c42b4bd6dd297536f04cd9383d212ac557ecd49f2cbdcd46da1c9ef5c8/opentelemetry_sdk-1.45.1-py3-none-any.whl", hash = "sha256:c604c11dc429810812348989115fa44bd558772a3d7442afc43d024f2c250ca4", size = 140063, upload-time = "2026-10-06T17:32:55.04Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/a5/9a3b793ef48245f2336a16beb2324c2397dbb3f987cd68942f77cca06156/opentelemetry_sdk-1.45.2-py3-none-any.whl", hash = "sha256:ff974ea70ee4f1d51e2ec152db37c2b626c7bf82bb3f7d86114fd8704e7199c6", size = 141756, upload-time = "2026-10-29T17:29:33.722Z" },
 ]
 
 [[package]]
 name = "opentelemetry-semantic-conventions"
-version = "0.66b1"
+version = "0.66b2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/e4/dbbfb2a010c4db2224a5114638acede6fe563d33cc20fb1752cebcbe6298/opentelemetry_semantic_conventions-0.66b1.tar.gz", hash = "sha256:497ca63bf383723411e8eaf60c8779e9877633c936bb641080adab59d0eb6ec8", size = 150250, upload-time = "2026-10-06T17:33:14.073Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/37/3f/50f95972b50e8e353f5b9342034c9cd17730f1956f009ce6a3fbbd89f9ce/opentelemetry_semantic_conventions-0.66b2.tar.gz", hash = "sha256:7da5f1a5dc4383eb66711d4d3d3e71824d9403ac1559fea021cc103c1a4c4976", size = 150246, upload-time = "2026-10-29T17:29:55.682Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/14/67f8aa798857f8cf686f515bf93d9bb877ce952ddc8efae0fa25b45ce0d6/opentelemetry_semantic_conventions-0.66b1-py3-none-any.whl", hash = "sha256:d4cddeb4315490b35213f55e2bdc9ac54bb1e4d318927475bed62b35545e581b", size = 206279, upload-time = "2026-10-06T17:32:56.103Z" },
+    { url = "https://files.pythonhosted.org/packages/67/bd/6bf33ed31521c565931c037e9e81bac47c1acb000e850c6e24220e2a0c00/opentelemetry_semantic_conventions-0.66b2-py3-none-any.whl", hash = "sha256:4cbe61e5f9275d57ab31708446e7938ef4291ebbe6a7fca6f7a629c5acae87d8", size = 206280, upload-time = "2026-10-29T17:29:35.062Z" },
 ]
 
 [[package]]
@@ -2389,7 +2346,7 @@ wheels = [
 
 [[package]]
 name = "pysignalr"
-version = "1.3.0"
+version = "1.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -2397,9 +2354,9 @@ dependencies = [
     { name = "orjson" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/93/a6/ac80bd4972604c6930050e8b0eba41d6fde41cb3286087be0188a8865f55/pysignalr-1.3.0.tar.gz", hash = "sha256:ca2e4372f213d82148fa2f060f0fefd096f1f66fca1107ac05e76ec6abd4cf52", size = 16790, upload-time = "2025-04-29T21:23:38.931Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/90/991c2069ea98b6328a87a2380dea6c957cbe81b7954eddbcbf0bff5d62d6/pysignalr-1.3.3.tar.gz", hash = "sha256:d5bb0676f087a06e0ae8177b5791bf060f0f6546658707bb7de290c92da3052b", size = 239016, upload-time = "2026-10-17T15:55:51.267Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/54/74e35563927ab8538e1bd1404b35027861434aecf2bcc945ff30c188e56d/pysignalr-1.3.0-py3-none-any.whl", hash = "sha256:423c91b0d1dc8387f37118ac2d1dc87ed6b9e01993a04612eab8452193f40344", size = 19966, upload-time = "2025-04-29T21:23:37.513Z" },
+    { url = "https://files.pythonhosted.org/packages/59/ea/dc88c56f80c0dfc3649948b1a768592a6e61b27623e88cce655da4ffc609/pysignalr-1.3.3-py3-none-any.whl", hash = "sha256:5012af69a812eb0b8d725b1b8ca075ec1cc8633706da4239012ab7a76b83b23b", size = 23014, upload-time = "2026-10-17T15:55:50.23Z" },
 ]
 
 [[package]]
@@ -2807,11 +2764,11 @@ wheels = [
 
 [[package]]
 name = "sqlparse"
-version = "0.6.0"
+version = "0.6.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5f/d3/3f06a1006f2261d1342aefb3c71eed02f5d4ca5bdbecd86ebc12ad38306e/sqlparse-0.6.0.tar.gz", hash = "sha256:113c35c75365ab9cc9c7231d68c6428fb11c085fc8e9eb1ad659b7ddbf6cd2b9", size = 178477, upload-time = "2026-08-13T19:16:06.396Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/e0/361c764ea58cc1a75f7b4b424a74b08449db8bfa5e9199c7275999fdd1b9/sqlparse-0.6.1.tar.gz", hash = "sha256:ca722573f848ff2d30e40ea30f53a104b7dea7635ea9285891263eb2c58fb6e7", size = 182236, upload-time = "2026-11-01T18:06:45.951Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/50/f00935da0ec7cbf325f8dc4f772ae46fbc7b672dd62876e73f0a94adda57/sqlparse-0.6.0-py3-none-any.whl", hash = "sha256:b861c0288ce2fa56209a9a6412d2e066ac664b3873b89c26c9d8415e8e32996f", size = 50070, upload-time = "2026-08-13T19:16:04.062Z" },
+    { url = "https://files.pythonhosted.org/packages/df/ff/2fee788e82e75be8f210c65c5d103bf44c880e3769c884652a4cd911b8ba/sqlparse-0.6.1-py3-none-any.whl", hash = "sha256:3be5a72d04c873d690d7c6dedd33d6fae2ef82759881ceec02fc2efd0cba564f", size = 51200, upload-time = "2026-11-01T18:06:47.434Z" },
 ]
 
 [[package]]
@@ -2925,7 +2882,7 @@ wheels = [
 
 [[package]]
 name = "uipath"
-version = "2.14.43"
+version = "2.15.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "applicationinsights" },
@@ -2950,14 +2907,14 @@ dependencies = [
     { name = "uipath-platform" },
     { name = "uipath-runtime" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/71/ed/64d58303c35ca2dd01a04f38f213bd45acee26cf48501ed5e0a5ebed1a23/uipath-2.14.43.tar.gz", hash = "sha256:0e2c21f0e620f913f5ae8729ca95a7546de44fa38ab5c2178a58bb083a930939", size = 4599092, upload-time = "2026-10-21T12:49:58.316Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/b6/df1e0fb87c70f05bd2c3934621722c71cd9028aa695684053647cc5e624d/uipath-2.15.10.tar.gz", hash = "sha256:1c9f6ce04dd6c1a8064f2f16e7426b0613c4c277be0a98d7c4ccb14ba337121f", size = 4651164, upload-time = "2026-11-24T13:25:12.05Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e9/58/1c4bea4860fcd036fff546dce1e867f403ad255af4639070730465ac57e5/uipath-2.14.43-py3-none-any.whl", hash = "sha256:ffe9bffe66638570190325fd4e5a575a3f2f3818305049f1d01285936ffe8a36", size = 456271, upload-time = "2026-10-21T12:49:55.777Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/d3/4d87570da9d687dd4f704b551e90db8a6c12539f46569be2f9b1e6cffc36/uipath-2.15.10-py3-none-any.whl", hash = "sha256:2e838f275b867155457c70617a7a01e680118d6b0d7534f493ff847e5a931cc2", size = 469555, upload-time = "2026-11-24T13:25:09.72Z" },
 ]
 
 [[package]]
 name = "uipath-codex-sdk"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -2985,9 +2942,9 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.19.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "openai-codex", specifier = ">=0.161.0,<0.162.0" },
-    { name = "uipath", specifier = ">=2.14.41,<2.15.0" },
-    { name = "uipath-llm-client", extras = ["openai"], specifier = ">=1.17.1,<1.19.0" },
-    { name = "uipath-platform", specifier = ">=0.2.34" },
+    { name = "uipath", specifier = ">=2.15.1,<2.16.0" },
+    { name = "uipath-llm-client", extras = ["openai"], specifier = ">=1.23.0,<1.24.0" },
+    { name = "uipath-platform", specifier = ">=0.3.4" },
     { name = "uipath-runtime", specifier = ">=0.13.0,<0.14.0" },
 ]
 
@@ -3002,21 +2959,21 @@ dev = [
 
 [[package]]
 name = "uipath-core"
-version = "0.5.33"
+version = "0.5.35"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-instrumentation" },
     { name = "opentelemetry-sdk" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/32/8a254ae086cfa0ca9808d36b9084cffeea151b4250e77e84eed8c9dcde17/uipath_core-0.5.33.tar.gz", hash = "sha256:f533a3145131ce93bde78a264f98a796134dcd7a6ebf3211d8247a49d3b3eebc", size = 131308, upload-time = "2026-10-06T19:39:30.247Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/41/59aee7fed8f99b5436ae46395407d398ea23afd3bfb86722548f21997922/uipath_core-0.5.35.tar.gz", hash = "sha256:5a6d1d3aa2922afc2b8cabe0330a4e6b5521579e1615b921155c753cd1f5c5c3", size = 131459, upload-time = "2026-11-19T15:15:23.964Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7a/15/3aa01f0011515c0508e966eabf6b0949d61d8c2c326cf83f943616733ec3/uipath_core-0.5.33-py3-none-any.whl", hash = "sha256:13c541c9b684e3f7556c830442b9fa48a3a42a36a38a3086195b10eeb4360ffb", size = 55133, upload-time = "2026-10-06T19:39:28.9Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/29/b3dca487c3092ad243621a9d66410519841a63172ab3750e4292201a2cef/uipath_core-0.5.35-py3-none-any.whl", hash = "sha256:483d1a5dba8a35f5b52cb89cfc01dc19d3fca9f791f33230709834b60ad7c007", size = 55397, upload-time = "2026-11-19T15:15:22.4Z" },
 ]
 
 [[package]]
 name = "uipath-dev"
-version = "0.0.86"
+version = "0.0.88"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -3029,9 +2986,9 @@ dependencies = [
     { name = "uipath-runtime" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/60/781fd61f3e9d9842f8ce7216213a43d3b5d283b8d5d52ca90485a09867bd/uipath_dev-0.0.86.tar.gz", hash = "sha256:e6ee21893449b3999eff5ff558ee6c3cca84dd81fd94c3457b0124fea7de7b53", size = 8785880, upload-time = "2026-10-08T07:31:38.411Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/6b/7233ec357e82ff3d66432422af63de48d40489cd997c0e05cc8349b21d03/uipath_dev-0.0.88.tar.gz", hash = "sha256:1ec1a04708572f7d16e29d32fc35bff0af76d0f292e1a2094e72af79a66f8506", size = 8785864, upload-time = "2026-11-09T10:07:59.398Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/3d/5915b3d7b13a9bb16f3acb73801eac63bf346aa95ed8183a47d0f0db7558/uipath_dev-0.0.86-py3-none-any.whl", hash = "sha256:a8b317459d100b1ef464994f947273b31a00d5cbb9eebc8a9edc6b22375d58aa", size = 972162, upload-time = "2026-10-08T07:31:35.924Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/f4/9b943a9dcb5b2e1b2c344f0dca053c6c57cc497694798b1367b2abeb783b/uipath_dev-0.0.88-py3-none-any.whl", hash = "sha256:956e1a134ac2e218e743ff1c67c30ceaab473e4a51d04ff6968f7c6a6597c452", size = 972161, upload-time = "2026-11-09T10:07:57.449Z" },
 ]
 
 [[package]]
@@ -3045,7 +3002,7 @@ wheels = [
 
 [[package]]
 name = "uipath-llm-client"
-version = "1.18.5"
+version = "1.23.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -3054,9 +3011,9 @@ dependencies = [
     { name = "tenacity" },
     { name = "uipath-platform" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/28/0a/d5428819553e386ae5c72fba61ada08c6218949905574892127823e3c7f4/uipath_llm_client-1.18.5.tar.gz", hash = "sha256:10525d1c97a937af117b41f4164e83747d2de83e9b11ee523ff0ba62c07daf0a", size = 12534362, upload-time = "2026-09-09T10:48:49.411Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/92/d520d2c690e295edc6dc725d37e3d64e7453b5642f8392fcd1788612583b/uipath_llm_client-1.23.2.tar.gz", hash = "sha256:ca779ced69e34f2944131d8a2c4866fa941b00b82a97873824cac6255c18be29", size = 12572324, upload-time = "2026-11-24T09:20:54.74Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/d0/68d0b33b18181e9986430d2c16dfb6898e98a79113e3bcc8e6a46dbb9f3c/uipath_llm_client-1.18.5-py3-none-any.whl", hash = "sha256:f9b12229ef7e104708f95b4faa19da5ab439a0b50ccfff2c6e658a999f61858c", size = 71052, upload-time = "2026-09-09T10:48:47.653Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/26/d943e90056f16d12ac13c16af1e6efef440dc95ce4f6b217b01c33aed0ac/uipath_llm_client-1.23.2-py3-none-any.whl", hash = "sha256:3102fb80a1e5f984e1667b1fa1f358d1068acd2602054009aa37adb57e37c2dc", size = 82198, upload-time = "2026-11-24T09:20:53.014Z" },
 ]
 
 [package.optional-dependencies]
@@ -3066,20 +3023,21 @@ openai = [
 
 [[package]]
 name = "uipath-platform"
-version = "0.2.41"
+version = "0.3.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },
     { name = "pydantic-function-models" },
+    { name = "pyyaml" },
     { name = "sqlparse" },
     { name = "tenacity" },
     { name = "truststore" },
     { name = "uipath-core" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/bf/6427d99e3fcb85420db8d44ab65f3e35f5e3941c060f09c7088018d3ca2b/uipath_platform-0.2.41.tar.gz", hash = "sha256:b3082aa892f3922eb2aa756135554569dc1d43f8aacfd2034733d1469ac5aea4", size = 472238, upload-time = "2026-10-21T13:43:31.446Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/75/ad2440c3ba7974971b4dc67f7c728b9422a8095c9a820377bbc48b8e0043/uipath_platform-0.3.16.tar.gz", hash = "sha256:c416f76eb0d59522dbcbf25d64c3f05646e48a6fd54cfec4c30f8a07bee921e3", size = 569566, upload-time = "2026-11-24T19:52:48.425Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/42/9fff8ad222319492733c39b49f382bcfc9a13e0ddc76b20d536aa40f9861/uipath_platform-0.2.41-py3-none-any.whl", hash = "sha256:1121bf80228bb7bf0abf27b37b8454857e11a517f451775bc8ddca07da40967e", size = 304378, upload-time = "2026-10-21T13:43:29.651Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/3a/a8e2092c588147f9ec780d10b2bce6ec325715bc395072ab7f39f27b8976/uipath_platform-0.3.16-py3-none-any.whl", hash = "sha256:7c83b3c92ea8d1eb8177a36f0b0447def3a200a97ba0b7c982ed5abc80feed88", size = 363321, upload-time = "2026-11-24T19:52:46.536Z" },
 ]
 
 [[package]]

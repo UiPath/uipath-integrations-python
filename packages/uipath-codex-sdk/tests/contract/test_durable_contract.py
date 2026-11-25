@@ -389,7 +389,7 @@ def test_c6_rollout_path_pattern(cenv: ContractEnv, evidence: Evidence):
     cid = new_call_id()
     s = start_and_hold(cenv, evidence, [cid])
     wait_quiet(cenv, s.home, s.thread_id)
-    rels = [str(p.relative_to(s.home)) for p in find_rollouts(s.home)]
+    rels = [p.relative_to(s.home).as_posix() for p in find_rollouts(s.home)]
     evidence.add("rollout files", rels)
     evidence.add("CODEX_HOME top level", sorted(p.name for p in s.home.iterdir()))
     assert len(rels) == 1, evidence.dump()

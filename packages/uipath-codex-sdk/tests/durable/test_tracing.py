@@ -441,13 +441,15 @@ async def test_in_process_resume_stays_in_one_agent_run(
     assert await _saved_trace(project) is None
 
 
-async def test_items_codex_runs_itself_are_traced(project, upstream, world, spans):
+async def test_items_codex_runs_itself_are_traced(
+    shell_project, upstream, world, spans
+):
     """A shell command next to the durable call: a Tool call span."""
     upstream.script = SiblingScript(sibling_after=False)
-    result = await _run(project, {}, resume=False)
+    result = await _run(shell_project, {}, resume=False)
     assert result.status == UiPathRuntimeStatus.SUSPENDED, result
     finished = spans.get_finished_spans()
-    saved = await _saved_trace(project)
+    saved = await _saved_trace(shell_project)
     assert saved is not None
     [shell] = _by_name(finished, "Tool call - shell")
     assert _parent_id(shell) == int(saved["span_id"], 16)

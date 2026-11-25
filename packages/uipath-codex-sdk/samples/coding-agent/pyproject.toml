@@ -5,7 +5,7 @@ description = "UiPath Codex SDK coding sample (built-in shell + file tools)"
 authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
 requires-python = ">=3.11"
 dependencies = [
-    "uipath-codex-sdk>=0.1.0",
+    "uipath-codex-sdk>=0.1.1",
 ]
 
 [dependency-groups]

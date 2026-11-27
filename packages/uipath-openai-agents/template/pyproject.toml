@@ -1,0 +1,14 @@
+[project]
+name = "uipath-openai-agents-template-agent"
+version = "0.0.1"
+description = "uipath-openai-agents-template-agent"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+dependencies = [
+    "uipath-openai-agents>=0.0.9, <0.1.0",
+]
+requires-python = ">=3.11"
+
+[dependency-groups]
+dev = [
+    "uipath-dev>=0.0.74",
+]

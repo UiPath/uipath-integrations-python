@@ -1,0 +1,12 @@
+[project]
+name = "template-agent"
+version = "0.0.1"
+description = "template-agent"
+authors = [{ name = "John Doe", email = "john.doe@myemail.com" }]
+dependencies = [
+    "uipath-openai-agents",
+]
+requires-python = ">=3.11"
+
+[tool.uv.sources]
+uipath-openai-agents = { path = "../../", editable = true }

@@ -6,7 +6,7 @@ import os
 from unittest.mock import AsyncMock, MagicMock
 
 from agent_framework import BaseAgent, WorkflowBuilder
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatCompletionClient
 from agent_framework.orchestrations import SequentialBuilder
 from conftest import make_chunked_streaming_response, make_mock_response
 from pydantic import BaseModel
@@ -181,7 +181,9 @@ class TestStructuredOutputResult:
             CITY_INFO_JSON
         )
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
         city_agent = client.as_agent(
             name="city_agent",
             instructions="Describe cities in structured format.",
@@ -223,7 +225,9 @@ class TestStructuredOutputResult:
             "Tokyo is the capital of Japan."
         )
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
         agent = client.as_agent(
             name="basic_agent",
             instructions="Describe cities.",
@@ -264,7 +268,9 @@ class TestStructuredOutputResult:
             make_chunked_streaming_response(CITY_INFO_JSON)
         )
 
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
         city_agent = client.as_agent(
             name="city_agent",
             instructions="Describe cities in structured format.",
@@ -313,7 +319,9 @@ class TestSequentialStructuredOutput:
 
     def _make_sequential_agent(self, mock_openai: AsyncMock):
         """Create a sequential workflow where the last agent has response_format."""
-        client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+        client = OpenAIChatCompletionClient(
+            model="mock-model", async_client=mock_openai
+        )
 
         writer = client.as_agent(
             name="writer",

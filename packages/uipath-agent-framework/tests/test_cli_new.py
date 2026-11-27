@@ -35,3 +35,14 @@ def test_middleware_reports_error_with_stacktrace_on_failure(monkeypatch):
 
     assert result.should_continue is False
     assert result.should_include_stacktrace is True
+
+
+def test_scaffolded_main_builds_its_agent(tmp_path, monkeypatch):
+    """The template's client call must match the installed agent-framework API."""
+    import runpy
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    cli_new.generate_script(str(tmp_path))
+    namespace = runpy.run_path(str(tmp_path / "main.py"))
+
+    assert namespace["agent"].client.model == "gpt-4o-mini"

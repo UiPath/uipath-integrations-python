@@ -22,7 +22,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-from agent_framework.openai import OpenAIChatClient
+from agent_framework.openai import OpenAIChatCompletionClient
 from agent_framework.orchestrations import HandoffBuilder
 from conftest import (
     extract_system_text,
@@ -177,7 +177,7 @@ def _build_hitl_agents(mock_openai: AsyncMock) -> Any:
         """Issue a refund for an order. Requires human approval."""
         return f"Refund of ${amount:.2f} issued for order {order_id}: {reason}"
 
-    client = OpenAIChatClient(model_id="mock-model", async_client=mock_openai)
+    client = OpenAIChatCompletionClient(model="mock-model", async_client=mock_openai)
 
     # IMPORTANT: Agent instructions must use unique keywords for LLM mock routing.
     # The triage instructions must NOT contain keywords used by other agents

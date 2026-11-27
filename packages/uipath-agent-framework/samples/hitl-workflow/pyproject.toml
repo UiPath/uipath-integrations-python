@@ -7,8 +7,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "uipath>=2.14.41",
-    "uipath-agent-framework>=0.1.1",
-    "agent-framework-core>=1.0.0rc1",
+    "uipath-agent-framework>=0.1.2",
+    "agent-framework-core>=1.0.0",
 ]
 
 [dependency-groups]

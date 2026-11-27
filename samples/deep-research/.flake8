@@ -1,0 +1,45 @@
+[flake8]
+max-line-length = 128
+extend-ignore = 
+    # E203: whitespace before ':' (conflicts with black)
+    E203,
+    # W503: line break before binary operator (conflicts with black)
+    W503,
+    # D100: Missing docstring in public module
+    D100,
+    # D101: Missing docstring in public class
+    D101,
+    # D102: Missing docstring in public method
+    D102,
+    # D103: Missing docstring in public function
+    D103,
+    # D104: Missing docstring in public package
+    D104,
+    # D105: Missing docstring in magic method
+    D105,
+    # D107: Missing docstring in __init__
+    D107,
+    # F401: imported but unused
+    F401,
+    # F841: local variable assigned but never used
+    F841,
+    # E501: line too long (already handled by black)
+    E501,
+    # D401: First line should be in imperative mood 
+    D401,
+exclude = 
+    .git,
+    __pycache__,
+    .pytest_cache,
+    .mypy_cache,
+    .venv,
+    build,
+    dist,
+    *.egg-info
+per-file-ignores =
+    # Tests can have all sorts of issues
+    tests/*:E501,D,F,W,N
+    # Test files can have unused imports
+    test_*.py:E,F,W,D,N
+    # Init files can have unused imports
+    __init__.py:F401,F403

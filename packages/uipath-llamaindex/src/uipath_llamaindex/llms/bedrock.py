@@ -6,6 +6,7 @@ from uipath.platform.common import resolve_coded_agenthub_config
 from uipath.platform.constants import HEADER_AGENTHUB_CONFIG
 from uipath.utils import EndpointManager
 
+from .._trace_context import trace_context_headers
 from .supported_models import BedrockModel
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,7 @@ class AwsBedrockCompletionsPassthroughClient:
         if process_key:
             headers["X-UiPath-ProcessKey"] = process_key
 
+        headers.update(trace_context_headers())
         request.headers.update(headers)
 
 

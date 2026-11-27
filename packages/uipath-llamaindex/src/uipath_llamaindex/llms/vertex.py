@@ -10,6 +10,7 @@ from uipath.platform.common import resolve_coded_agenthub_config
 from uipath.platform.constants import HEADER_AGENTHUB_CONFIG
 from uipath.utils import EndpointManager
 
+from .._trace_context import trace_context_headers
 from .supported_models import GeminiModel
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ def _rewrite_request_for_gateway(
         # Design-time runs meter as CodedAgents.Playground; deployed -> AgentHub.LLM.
         if agenthub_config := resolve_coded_agenthub_config():
             headers[HEADER_AGENTHUB_CONFIG] = agenthub_config
+        headers.update(trace_context_headers())
         # Update host header to match the gateway URL
         gateway_url_parsed = httpx.URL(gateway_url)
         headers["host"] = gateway_url_parsed.host

@@ -36,12 +36,6 @@
       "attributes": {
         "openinference.span.kind": "TOOL"
       }
-    },
-    {
-      "name": ["UiPathChatBedrockConverse.achat", "UiPathOpenAI.achat", "UiPathVertex.achat"],
-      "attributes": {
-        "openinference.span.kind": "LLM"
-      }
     }
   ]
 }

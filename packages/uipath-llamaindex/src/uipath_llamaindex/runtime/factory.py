@@ -3,10 +3,7 @@
 import asyncio
 import os
 
-from openinference.instrumentation.llama_index import (
-    LlamaIndexInstrumentor,
-    get_current_span,
-)
+from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
 from uipath.core.tracing import UiPathSpanUtils, UiPathTraceManager
 from uipath.platform.resume_triggers import UiPathResumeTriggerHandler
 from uipath.runtime import (
@@ -19,6 +16,7 @@ from uipath.runtime import (
 from uipath.runtime.errors import UiPathErrorCategory
 from workflows import Workflow
 
+from uipath_llamaindex.runtime._llm_spans import current_span, skip_client_llm_spans
 from uipath_llamaindex.runtime._telemetry import (
     ToolCallAttributeNormalizer,
 )
@@ -59,8 +57,12 @@ class UiPathLlamaIndexRuntimeFactory:
 
     def _setup_instrumentation(self, trace_manager: UiPathTraceManager | None) -> None:
         """Setup tracing and instrumentation."""
-        LlamaIndexInstrumentor().instrument()
-        UiPathSpanUtils.register_current_span_provider(get_current_span)
+        instrumentor = LlamaIndexInstrumentor()
+        instrumentor.instrument()
+        # The LLM Gateway records "Model run", so the client-side LLM span
+        # isn't created (unless UIPATH_USE_CLIENT_LLM_SPANS is true).
+        skip_client_llm_spans(instrumentor)
+        UiPathSpanUtils.register_current_span_provider(current_span)
 
         if trace_manager:
             trace_manager.tracer_provider.add_span_processor(

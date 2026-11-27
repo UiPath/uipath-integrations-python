@@ -1,4 +1,4 @@
-# UiPath OpenAI Agents Python SDK
+# UiPath OpenAI Agents Python SDK (test integration)
 
 [![PyPI - Version](https://img.shields.io/pypi/v/uipath-openai-agents)](https://pypi.org/project/uipath-openai-agents/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/uipath-openai-agents.svg)](https://pypi.org/project/uipath-openai-agents/)

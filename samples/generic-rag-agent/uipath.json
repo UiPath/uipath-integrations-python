@@ -1,0 +1,88 @@
+{
+    "entryPoints": [
+        {
+            "filePath": "agent",
+            "uniqueId": "de56dd1d-85cc-4b3d-b794-e8ddccae291a",
+            "type": "agent",
+            "input": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "default": "",
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "add_data_to_index": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "include_hitl": {
+                        "default": false,
+                        "title": "Include Hitl",
+                        "type": "boolean"
+                    }
+                },
+                "required": []
+            },
+            "output": {
+                "type": "object",
+                "properties": {
+                    "output": {
+                        "title": "Output",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "output"
+                ]
+            }
+        }
+    ],
+    "bindings": {
+        "version": "2.0",
+        "resources": [
+            {
+                "resource": "index",
+                "key": "index_name.index_folder_path",
+                "value": {
+                    "name": {
+                        "defaultValue": "index_name",
+                        "isExpression": true,
+                        "displayName": "Name"
+                    },
+                    "folderPath": {
+                        "defaultValue": "index_folder_path",
+                        "isExpression": true,
+                        "displayName": "Folder Path"
+                    }
+                },
+                "metadata": {
+                    "ActivityName": "retrieve_async",
+                    "BindingsVersion": "2.2",
+                    "DisplayLabel": "FullName"
+                }
+            },
+            {
+                "resource": "index",
+                "key": "index_name.index_folder_path",
+                "value": {
+                    "name": {
+                        "defaultValue": "index_name",
+                        "isExpression": true,
+                        "displayName": "Name"
+                    },
+                    "folderPath": {
+                        "defaultValue": "index_folder_path",
+                        "isExpression": true,
+                        "displayName": "Folder Path"
+                    }
+                },
+                "metadata": {
+                    "ActivityName": "add_to_index_async",
+                    "BindingsVersion": "2.2",
+                    "DisplayLabel": "FullName"
+                }
+            }
+        ]
+    }
+}

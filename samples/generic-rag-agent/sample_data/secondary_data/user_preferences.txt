@@ -1,0 +1,38 @@
+User Preferences
+
+Work Schedule:
+- Preferred working hours: 8 AM to 4 PM
+- Most productive time: Early mornings (8-11 AM)
+- Prefer to schedule meetings after 2 PM
+- Avoid Friday afternoon meetings if possible
+
+Communication Style:
+- Prefer async communication via Slack
+- Check email twice daily (morning and afternoon)
+- Available for urgent calls anytime during work hours
+- Response time: Within 2 hours during work hours
+
+Meeting Preferences:
+- Prefer video calls over phone calls
+- Send agenda at least 24 hours in advance
+- Keep meetings to 30 minutes or less when possible
+- Record meetings for later reference
+
+Work Environment:
+- Prefer working from home on Mondays and Fridays
+- In office Tuesday-Thursday for collaboration
+- Quiet environment needed for deep work
+- Headphones indicate do-not-disturb
+
+Technology Preferences:
+- IDE: VSCode with Vim keybindings
+- Terminal: Windows Terminal
+- Note-taking: Obsidian
+- Task management: Linear
+- Browser: Chrome
+
+Learning Style:
+- Prefer documentation over video tutorials
+- Learn best by doing and experimenting
+- Appreciate code reviews with detailed feedback
+- Regular 1-on-1s for career development discussions
